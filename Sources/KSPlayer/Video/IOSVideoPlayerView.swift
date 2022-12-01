@@ -130,11 +130,20 @@ open class IOSVideoPlayerView: VideoPlayerView {
             fullVC.view.addSubview(self)
             translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                topAnchor.constraint(equalTo: fullVC.view.readableTopAnchor),
+//                topAnchor.constraint(equalTo: fullVC.view.readableTopAnchor),
                 leadingAnchor.constraint(equalTo: fullVC.view.leadingAnchor),
                 trailingAnchor.constraint(equalTo: fullVC.view.trailingAnchor),
                 bottomAnchor.constraint(equalTo: fullVC.view.bottomAnchor),
             ])
+            if #available(iOS 16.0, *) {
+                NSLayoutConstraint.activate([
+                    topAnchor.constraint(equalTo: fullVC.view.topAnchor)
+                ])
+            } else {
+                NSLayoutConstraint.activate([
+                    topAnchor.constraint(equalTo: fullVC.view.readableTopAnchor)
+                ])
+            }
             fullVC.modalPresentationStyle = .fullScreen
             fullVC.modalPresentationCapturesStatusBarAppearance = true
             fullVC.transitioningDelegate = self
