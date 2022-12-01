@@ -52,7 +52,7 @@ class PlayerFullScreenViewController: UIViewController {
     }
 
     override var prefersStatusBarHidden: Bool {
-        statusHiden
+        true
     }
 }
 

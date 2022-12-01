@@ -51,7 +51,7 @@ class PlayerTransitionAnimator: NSObject, UIViewControllerAnimatedTransitioning 
         animationView.center = isDismiss ? toCenter : fromCenter
         UIView.animate(withDuration: transitionDuration(using: transitionContext), delay: 0, options: .curveEaseInOut) {
             self.animationView.transform = .identity
-            self.animationView.center = self.isDismiss ? fromCenter : toCenter
+            self.animationView.center = self.isDismiss ? CGPoint(x: UIScreen.main.bounds.size.width / 2, y: fromCenter.y) : toCenter
         } completion: { _ in
             animationSuperView?.addSubview(self.animationView)
             if !self.isDismiss {

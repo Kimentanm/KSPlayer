@@ -116,7 +116,7 @@ open class IOSVideoPlayerView: VideoPlayerView {
         }
         landscapeButton.isSelected = isFullScreen
         let isHorizonal = isHorizonal()
-        viewController.navigationController?.interactivePopGestureRecognizer?.isEnabled = !isFullScreen
+//         viewController.navigationController?.interactivePopGestureRecognizer?.isEnabled = !isFullScreen
         if isFullScreen {
             if viewController is PlayerFullScreenViewController {
                 return
@@ -292,10 +292,10 @@ extension IOSVideoPlayerView {
     }
 
     @objc private func orientationChanged(notification _: Notification) {
-        guard isHorizonal() else {
-            return
-        }
-        updateUI(isFullScreen: UIApplication.isLandscape)
+//         guard isHorizonal() else {
+//             return
+//         }
+//         updateUI(isFullScreen: UIApplication.isLandscape)
     }
 }
 

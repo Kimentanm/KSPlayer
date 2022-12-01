@@ -433,11 +433,11 @@ extension KSAVPlayer: MediaPlayerProtocol {
     }
 
     public func enterBackground() {
-        playerView.playerLayer.player = nil
+//         playerView.playerLayer.player = nil
     }
 
     public func enterForeground() {
-        playerView.playerLayer.player = playerView.player
+//         playerView.playerLayer.player = playerView.player
     }
 
     public var seekable: Bool {
