@@ -236,22 +236,7 @@ class AudioSwresample: Swresample {
     private var outChannel: AVChannelLayout
     init(codecpar: AVCodecParameters) {
         descriptor = AudioDescriptor(codecpar: codecpar)
-        var layout = KSOptions.channelLayout.layout.pointee
-        KSLog("KSOptions channelLayout: \(layout)")
-        let n = Int(layout.mNumberChannelDescriptions)
-        if n > 2 {
-            let buffers = UnsafeBufferPointer<AudioChannelDescription>(start: &layout.mChannelDescriptions, count: n)
-            var array = (0 ..< n).map { i in
-                var custom = AVChannelCustom()
-                custom.id = buffers[i].mChannelLabel.avChannel
-                return custom
-            }
-            KSLog("channelLayout map: \(array)")
-            outChannel = AVChannelLayout(order: AV_CHANNEL_ORDER_CUSTOM, nb_channels: Int32(n), u: AVChannelLayout.__Unnamed_union_u(map: &array), opaque: nil)
-        } else {
-            outChannel = AVChannelLayout()
-            av_channel_layout_default(&outChannel, Int32(max(n, 1)))
-        }
+        outChannel = KSOptions.channelLayout.channel
         KSLog("out channelLayout: \(outChannel)")
         _ = setup(descriptor: descriptor)
     }
@@ -259,18 +244,6 @@ class AudioSwresample: Swresample {
     private func setup(descriptor: AudioDescriptor) -> Bool {
         _ = swr_alloc_set_opts2(&swrContext, &outChannel, AV_SAMPLE_FMT_FLTP, KSOptions.audioPlayerSampleRate, &descriptor.inChannel, descriptor.inputFormat, descriptor.inputSampleRate, 0, nil)
         let result = swr_init(swrContext)
-//        if KSOptions.channelLayout.channelCount > 2 {
-//            var layout = KSOptions.channelLayout.layout.pointee
-//            let n = Int(layout.mNumberChannelDescriptions)
-//            var channelMap = Array(repeating: Int32(-1), count: n)
-//            let buffers = UnsafeBufferPointer<AudioChannelDescription>(start: &layout.mChannelDescriptions, count: n)
-//            for i in 0 ..< n {
-//                let channel = buffers[i].mChannelLabel.avChannel
-//                channelMap[i] = av_channel_layout_index_from_channel(&outChannel, channel)
-//            }
-//
-//            swr_set_channel_mapping(swrContext, channelMap)
-//        }
         if result < 0 {
             shutdown()
             return false
@@ -304,38 +277,77 @@ class AudioSwresample: Swresample {
     }
 }
 
+extension AVAudioChannelLayout {
+    var channel: AVChannelLayout {
+        let mutableLayout = UnsafeMutablePointer(mutating: layout)
+        KSLog("KSOptions channelLayout: \(mutableLayout.pointee)")
+        let tag = mutableLayout.pointee.mChannelLayoutTag
+        let n = Int(mutableLayout.pointee.mNumberChannelDescriptions)
+        switch tag {
+        case kAudioChannelLayoutTag_Mono: return .init(nb: 1, mask: swift_AV_CH_LAYOUT_MONO)
+        case kAudioChannelLayoutTag_Stereo: return .init(nb: 2, mask: swift_AV_CH_LAYOUT_STEREO)
+        case kAudioChannelLayoutTag_AAC_Quadraphonic: return .init(nb: 4, mask: swift_AV_CH_LAYOUT_QUAD)
+        case kAudioChannelLayoutTag_AAC_Octagonal: return .init(nb: 8, mask: swift_AV_CH_LAYOUT_OCTAGONAL)
+        case kAudioChannelLayoutTag_AAC_3_0: return .init(nb: 3, mask: swift_AV_CH_LAYOUT_SURROUND)
+        case kAudioChannelLayoutTag_AAC_4_0: return .init(nb: 4, mask: swift_AV_CH_LAYOUT_4POINT0)
+        case kAudioChannelLayoutTag_AAC_5_0: return .init(nb: 5, mask: swift_AV_CH_LAYOUT_5POINT0)
+        case kAudioChannelLayoutTag_AAC_5_1: return .init(nb: 6, mask: swift_AV_CH_LAYOUT_5POINT1)
+        case kAudioChannelLayoutTag_AAC_6_0: return .init(nb: 6, mask: swift_AV_CH_LAYOUT_6POINT0)
+        case kAudioChannelLayoutTag_AAC_6_1: return .init(nb: 7, mask: swift_AV_CH_LAYOUT_6POINT1)
+        case kAudioChannelLayoutTag_AAC_7_0: return .init(nb: 7, mask: swift_AV_CH_LAYOUT_7POINT0)
+        case kAudioChannelLayoutTag_AAC_7_1: return .init(nb: 8, mask: swift_AV_CH_LAYOUT_7POINT1_WIDE_BACK)
+        case kAudioChannelLayoutTag_MPEG_7_1_C: return .init(nb: 8, mask: swift_AV_CH_LAYOUT_7POINT1)
+        case kAudioChannelLayoutTag_UseChannelDescriptions:
+            let buffers = UnsafeBufferPointer<AudioChannelDescription>(start: &mutableLayout.pointee.mChannelDescriptions, count: n)
+            var mask = UInt64(0)
+            for i in 0 ..< n {
+                let label = buffers[i].mChannelLabel
+                KSLog("KSOptions channelLayout label: \(label)")
+                let channel = label.avChannel.rawValue
+                KSLog("KSOptions channelLayout avChannel: \(channel)")
+                if channel >= 0 {
+                    mask |= 1 << channel
+                }
+            }
+            var outChannel = AVChannelLayout()
+            // 不能用AV_CHANNEL_ORDER_CUSTOM
+            av_channel_layout_from_mask(&outChannel, mask)
+            KSLog("out channelLayout mask: \(mask)")
+            return outChannel
+        default:
+            var outChannel = AVChannelLayout()
+            av_channel_layout_default(&outChannel, Int32(max(n, 1)))
+            return outChannel
+        }
+    }
+}
+
+extension AVChannelLayout {
+    init(nb: Int32, mask: UInt64) {
+        self.init(order: AV_CHANNEL_ORDER_NATIVE, nb_channels: nb, u: AVChannelLayout.__Unnamed_union_u(mask: mask), opaque: nil)
+    }
+}
+
 extension AudioChannelLabel {
     var avChannel: AVChannel {
         if self == 0 {
-            return AVChannel(-1)
-        } else if self <= kAudioChannelLabel_LFEScreen {
-            return AVChannel(Int32(self) - 1)
-        } else if self <= kAudioChannelLabel_RightSurround {
-            return AVChannel(Int32(self) + 4)
-
-        } else if self <= kAudioChannelLabel_CenterSurround {
-            return AVChannel(Int32(self) + 1)
-
-        } else if self <= kAudioChannelLabel_RightSurroundDirect {
-            return AVChannel(Int32(self) + 23)
-
+            return AV_CHAN_NONE
         } else if self <= kAudioChannelLabel_TopBackRight {
             return AVChannel(Int32(self) - 1)
-
-        } else if self < kAudioChannelLabel_RearSurroundLeft {
-            return AVChannel(-1)
-
-        } else if self <= kAudioChannelLabel_RearSurroundRight {
-            return AVChannel(Int32(self) - 29)
-
-        } else if self <= kAudioChannelLabel_RightWide {
-            return AVChannel(Int32(self) - 4)
+        } else if self == kAudioChannelLabel_RearSurroundLeft || self == kAudioChannelLabel_RearSurroundRight {
+            return AVChannel(Int32(self))
+        } else if self == kAudioChannelLabel_LeftWide {
+            return AV_CHAN_WIDE_LEFT
+        } else if self == kAudioChannelLabel_RightWide {
+            return AV_CHAN_WIDE_RIGHT
         } else if self == kAudioChannelLabel_LFE2 {
-            return AVChannel(swift_ctzll(Int64(swift_AV_CH_LOW_FREQUENCY_2)))
-        } else if self == kAudioChannelLabel_Mono {
-            return AVChannel(swift_ctzll(Int64(swift_AV_CH_FRONT_CENTER)))
+            return AV_CHAN_LOW_FREQUENCY_2
+        } else if self == kAudioChannelLabel_HeadphonesLeft {
+            return AV_CHAN_STEREO_LEFT
+        } else if self == kAudioChannelLabel_HeadphonesRight {
+            return AV_CHAN_STEREO_RIGHT
         } else {
-            return AVChannel(-1)
+            return AV_CHAN_NONE
         }
     }
 }
