@@ -146,7 +146,7 @@ open class IOSVideoPlayerView: VideoPlayerView {
             }
             fullVC.modalPresentationStyle = .fullScreen
             fullVC.modalPresentationCapturesStatusBarAppearance = true
-            fullVC.transitioningDelegate = self
+//             fullVC.transitioningDelegate = self
             viewController.present(fullVC, animated: true) {
                 KSOptions.supportedInterfaceOrientations = fullVC.supportedInterfaceOrientations
             }
@@ -156,14 +156,14 @@ open class IOSVideoPlayerView: VideoPlayerView {
             }
             let presentingVC = viewController.presentingViewController ?? viewController
             KSOptions.supportedInterfaceOrientations = .portrait
+            self.originalSuperView?.addSubview(self)
+            if let constraints = self.originalframeConstraints, constraints.count > 0 {
+                NSLayoutConstraint.activate(constraints)
+            } else {
+                self.translatesAutoresizingMaskIntoConstraints = true
+                self.frame = self.originalFrame
+            }
             presentingVC.dismiss(animated: true) {
-                self.originalSuperView?.addSubview(self)
-                if let constraints = self.originalframeConstraints, constraints.count > 0 {
-                    NSLayoutConstraint.activate(constraints)
-                } else {
-                    self.translatesAutoresizingMaskIntoConstraints = true
-                    self.frame = self.originalFrame
-                }
                 if let originalOrientations = self.originalOrientations {
                     KSOptions.supportedInterfaceOrientations = originalOrientations
                 }
