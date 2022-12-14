@@ -45,11 +45,7 @@ public final class MetalPlayView: UIView {
         self.options = options
         super.init(frame: .zero)
         cancellable = options.$preferredFramesPerSecond.sink { [weak self] value in
-            #if os(tvOS)
-            self?.displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: 0, maximum: Float(UIScreen.main.maximumFramesPerSecond))
-            #else
             self?.displayLink.preferredFramesPerSecond = Int(ceil(value * 1.5))
-            #endif
         }
         #if !canImport(UIKit)
         layer = AVSampleBufferDisplayLayer()

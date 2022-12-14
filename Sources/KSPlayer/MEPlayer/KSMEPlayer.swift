@@ -330,8 +330,8 @@ extension KSMEPlayer: MediaPlayerProtocol {
 
     public func shutdown() {
         KSLog("shutdown \(self)")
+        loadState = .playable
         playbackState = .stopped
-        loadState = .idle
         isReadyToPlay = false
         loopCount = 0
         playerItem.shutdown()
