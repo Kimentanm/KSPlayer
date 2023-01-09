@@ -176,12 +176,17 @@ open class VideoPlayerView: PlayerView {
             guard let tracks = playerLayer?.player.tracks(mediaType: type == .audioSwitch ? .audio : .video) else {
                 return
             }
-            let alertController = UIAlertController(title: NSLocalizedString(type == .audioSwitch ? "switch audio" : "switch video", comment: ""), message: nil, preferredStyle: preferredStyle())
+            let alertController = UIAlertController(title: NSLocalizedString(type == .audioSwitch ? "选择音频" : "选择视频", comment: ""), message: nil, preferredStyle: preferredStyle())
             for track in tracks {
                 let isEnabled = track.isEnabled
                 var title = track.name
                 if type == .videoSwitch {
                     title += " \(track.naturalSize.width)x\(track.naturalSize.height)"
+                }
+                if type == .audioSwitch {
+                    title += " \(track.channelLayoutDescribe)"
+                    title += ",\(track.audioStreamBasicDescription?.mChannelsPerFrame ?? 0)ch"
+                    title += ",\(((track.audioStreamBasicDescription?.mSampleRate ?? 0) / 1000).cleanZero)kHz"
                 }
                 let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
                     guard let self, !isEnabled else { return }
@@ -779,4 +784,12 @@ extension UIView {
             return bottomAnchor
         }
     }
+}
+
+extension Float64 {
+
+    var cleanZero : String {
+        return self.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", self) : String(self)
+    }
+
 }
