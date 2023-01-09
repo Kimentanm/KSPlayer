@@ -31,6 +31,7 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
     public let audioStreamBasicDescription: AudioStreamBasicDescription?
     public let fieldOrder: FFmpegFieldOrder
     public let description: String
+    public let channelLayoutDescribe: String
     init?(stream: UnsafeMutablePointer<AVStream>) {
         self.stream = stream
         trackID = stream.pointee.index
@@ -76,7 +77,8 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
             description += ", \(codecpar.sample_rate)Hz"
             var str = [Int8](repeating: 0, count: 64)
             _ = av_channel_layout_describe(&codecpar.ch_layout, &str, str.count)
-            description += ", \(String(cString: str))"
+            channelLayoutDescribe = String(cString: str)
+            description += ", \(channelLayoutDescribe)"
             if let name = av_get_sample_fmt_name(AVSampleFormat(rawValue: codecpar.format)) {
                 let fmt = String(cString: name)
                 description += ", \(fmt)"
@@ -84,6 +86,7 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
         } else if codecpar.codec_type == AVMEDIA_TYPE_VIDEO {
             mediaType = .video
             audioStreamBasicDescription = nil
+            channelLayoutDescribe = ""
             if let name = av_get_pix_fmt_name(AVPixelFormat(rawValue: codecpar.format)) {
                 description += ", \(String(cString: name))"
             }
@@ -91,6 +94,7 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
         } else if codecpar.codec_type == AVMEDIA_TYPE_SUBTITLE {
             mediaType = .subtitle
             audioStreamBasicDescription = nil
+            channelLayoutDescribe = ""
         } else {
             return nil
         }

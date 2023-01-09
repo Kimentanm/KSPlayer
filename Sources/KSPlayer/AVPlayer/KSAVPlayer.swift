@@ -506,6 +506,7 @@ struct AVMediaPlayerTrack: MediaPlayerTrack {
             track.isEnabled = newValue
         }
     }
+    let channelLayoutDescribe: String
 
     init(track: AVPlayerItemTrack) {
         self.track = track
@@ -516,6 +517,7 @@ struct AVMediaPlayerTrack: MediaPlayerTrack {
         nominalFrameRate = track.assetTrack?.nominalFrameRate ?? 24.0
         naturalSize = track.assetTrack?.naturalSize ?? .zero
         bitRate = Int64(track.assetTrack?.estimatedDataRate ?? 0)
+        channelLayoutDescribe = ""
         if let formatDescription = track.assetTrack?.formatDescriptions.first {
             // swiftlint:disable force_cast
             let desc = formatDescription as! CMFormatDescription
