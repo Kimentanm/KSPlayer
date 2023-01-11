@@ -30,16 +30,16 @@ PODS:
   - KSPlayer/Video (1.0):
     - KSPlayer/Core
     - KSPlayer/Subtitle
-  - OpenSSL (3.0.2):
-    - OpenSSL/OpenSSL (= 3.0.2)
-  - OpenSSL/OpenSSL (3.0.2)
-  - SwiftLint (0.39.2)
+  - OpenSSL (3.0.7):
+    - OpenSSL/OpenSSL (= 3.0.7)
+  - OpenSSL/OpenSSL (3.0.7)
+  - SwiftLint (0.50.3)
 
 DEPENDENCIES:
-  - FFmpeg (from `../`)
+  - FFmpeg (from `https://github.com/kingslay/FFmpegKit.git`, branch `main`)
   - KSPlayer (from `../`)
   - KSPlayer/Tests (from `../`)
-  - OpenSSL (from `../`)
+  - OpenSSL (from `https://github.com/kingslay/FFmpegKit.git`, branch `main`)
   - SwiftLint
 
 SPEC REPOS:
@@ -48,18 +48,28 @@ SPEC REPOS:
 
 EXTERNAL SOURCES:
   FFmpeg:
-    :path: "../"
+    :branch: main
+    :git: https://github.com/kingslay/FFmpegKit.git
   KSPlayer:
     :path: "../"
   OpenSSL:
-    :path: "../"
+    :branch: main
+    :git: https://github.com/kingslay/FFmpegKit.git
+
+CHECKOUT OPTIONS:
+  FFmpeg:
+    :commit: 84160ef6aea9b2921bd147cc3cf88ab5acffc3f7
+    :git: https://github.com/kingslay/FFmpegKit.git
+  OpenSSL:
+    :commit: 84160ef6aea9b2921bd147cc3cf88ab5acffc3f7
+    :git: https://github.com/kingslay/FFmpegKit.git
 
 SPEC CHECKSUMS:
-  FFmpeg: afdcf31638c1a6a0253eaf9505983e21a3a5d2c1
+  FFmpeg: 2feeb20f8a29ea8b9019b9fc74798694bb2c0a13
   KSPlayer: d0ee11093f3230cc235a3f555f5c4aee9052265e
-  OpenSSL: 9637184330c49c5862fc0bb383005bd55e5a2335
-  SwiftLint: 22ccbbe3b8008684be5955693bab135e0ed6a447
+  OpenSSL: 1a6bdbed836300e614db17920d46b502cd72d7fc
+  SwiftLint: 77f7cb2b9bb81ab4a12fcc86448ba3f11afa50c6
 
-PODFILE CHECKSUM: a88f7a03bcaf7f25903f40f95dcc14fdee02a835
+PODFILE CHECKSUM: 9116ec7b5ffddf4b72b3bc5b3c152789f18b1771
 
 COCOAPODS: 1.11.3

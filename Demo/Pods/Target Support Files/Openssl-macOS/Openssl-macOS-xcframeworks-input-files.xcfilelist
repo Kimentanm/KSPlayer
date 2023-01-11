@@ -1,3 +1,0 @@
-${PODS_ROOT}/Target Support Files/OpenSSL-macOS/OpenSSL-macOS-xcframeworks.sh
-${PODS_ROOT}/../../Sources/Libssl.xcframework
-${PODS_ROOT}/../../Sources/Libcrypto.xcframework

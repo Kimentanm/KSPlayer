@@ -51,7 +51,7 @@ final class MEPlayerItem {
     private(set) var assetTracks = [FFmpegAssetTrack]()
     private var videoAdaptation: VideoAdaptationState?
     private(set) var currentPlaybackTime = TimeInterval(0)
-    private var startTime = TimeInterval(0)
+    private var startTime = CMTime.zero
     private var videoClockDelay = TimeInterval(0)
     private(set) var rotation = 0.0
     private(set) var duration: TimeInterval = 0
@@ -129,7 +129,7 @@ final class MEPlayerItem {
             if $0.mediaType == .subtitle, !$0.isImageSubtitle {
                 return
             }
-            $0.stream.pointee.discard = AVDISCARD_ALL
+            $0.isEnabled = false
         }
         track.setIsEnabled(true)
         if track.mediaType == .video, let assetTrack = track as? FFmpegAssetTrack {
@@ -189,7 +189,7 @@ extension MEPlayerItem {
             return
         }
         guard result == 0 else {
-            error = .init(errorCode: .formatOpenInput, ffmpegErrnum: result)
+            error = .init(errorCode: .formatOpenInput, avErrorCode: result)
             avformat_close_input(&self.formatCtx)
             return
         }
@@ -204,19 +204,17 @@ extension MEPlayerItem {
         }
         result = avformat_find_stream_info(formatCtx, nil)
         guard result == 0 else {
-            error = .init(errorCode: .formatFindStreamInfo, ffmpegErrnum: result)
+            error = .init(errorCode: .formatFindStreamInfo, avErrorCode: result)
             avformat_close_input(&self.formatCtx)
             return
         }
         options.findTime = CACurrentMediaTime()
         options.formatName = String(cString: formatCtx.pointee.iformat.pointee.name)
         if formatCtx.pointee.start_time != Int64.min {
-            startTime = TimeInterval(formatCtx.pointee.start_time / Int64(AV_TIME_BASE))
+            startTime = CMTime(value: formatCtx.pointee.start_time, timescale: AV_TIME_BASE)
         }
+        currentPlaybackTime = startTime.seconds
         duration = TimeInterval(max(formatCtx.pointee.duration, 0) / Int64(AV_TIME_BASE))
-        if duration > startTime {
-            duration -= startTime
-        }
         createCodec(formatCtx: formatCtx)
         if let outputURL = options.outputURL {
             openOutput(url: outputURL)
@@ -236,7 +234,7 @@ extension MEPlayerItem {
         let filename = url.isFileURL ? url.path : url.absoluteString
         var ret = avformat_alloc_output_context2(&outputFormatCtx, nil, nil, filename)
         guard let outputFormatCtx, let formatCtx else {
-            KSLog(NSError(errorCode: .formatOutputCreate, ffmpegErrnum: ret))
+            KSLog(NSError(errorCode: .formatOutputCreate, avErrorCode: ret))
             return
         }
         var index = 0
@@ -281,7 +279,7 @@ extension MEPlayerItem {
         avio_open(&(outputFormatCtx.pointee.pb), filename, AVIO_FLAG_WRITE)
         ret = avformat_write_header(outputFormatCtx, nil)
         guard ret >= 0 else {
-            KSLog(NSError(errorCode: .formatWriteHeader, ffmpegErrnum: ret))
+            KSLog(NSError(errorCode: .formatWriteHeader, avErrorCode: ret))
             avformat_close_input(&self.outputFormatCtx)
             return
         }
@@ -298,11 +296,9 @@ extension MEPlayerItem {
             if let coreStream = formatCtx.pointee.streams[i] {
                 coreStream.pointee.discard = AVDISCARD_ALL
                 if let assetTrack = FFmpegAssetTrack(stream: coreStream) {
-                    if assetTrack.startTime == 0, startTime != 0 {
-                        assetTrack.startTime = startTime
-                    }
                     if !options.subtitleDisable, assetTrack.mediaType == .subtitle {
                         let subtitle = SyncPlayerItemTrack<SubtitleFrame>(assetTrack: assetTrack, options: options)
+                        assetTrack.setIsEnabled(!assetTrack.isImageSubtitle)
                         assetTrack.subtitle = subtitle
                         allPlayerItemTracks.append(subtitle)
                     }
@@ -312,7 +308,7 @@ extension MEPlayerItem {
             return nil
         }
         if options.autoSelectEmbedSubtitle {
-            assetTracks.first { $0.mediaType == .subtitle }?.setIsEnabled(true)
+            assetTracks.first { $0.mediaType == .subtitle }?.isEnabled = true
         }
         var videoIndex: Int32 = -1
         if !options.videoDisable {
@@ -326,7 +322,7 @@ extension MEPlayerItem {
             }
             videoIndex = av_find_best_stream(formatCtx, AVMEDIA_TYPE_VIDEO, wantedStreamNb, -1, nil, 0)
             if let first = videos.first(where: { $0.trackID == videoIndex }) {
-                first.stream.pointee.discard = AVDISCARD_DEFAULT
+                first.isEnabled = true
                 rotation = first.rotation
                 naturalSize = first.naturalSize
                 let track = options.syncDecodeVideo ? SyncPlayerItemTrack<VideoVTBFrame>(assetTrack: first, options: options) : AsyncPlayerItemTrack<VideoVTBFrame>(assetTrack: first, options: options)
@@ -349,7 +345,7 @@ extension MEPlayerItem {
         }
         let index = av_find_best_stream(formatCtx, AVMEDIA_TYPE_AUDIO, wantedStreamNb, videoIndex, nil, 0)
         if let first = assetTracks.first(where: { $0.mediaType == .audio && $0.trackID == index }) {
-            first.stream.pointee.discard = AVDISCARD_DEFAULT
+            first.isEnabled = true
             let track = options.syncDecodeAudio ? SyncPlayerItemTrack<AudioFrame>(assetTrack: first, options: options) : AsyncPlayerItemTrack<AudioFrame>(assetTrack: first, options: options)
             track.delegate = self
             allPlayerItemTracks.append(track)
@@ -387,7 +383,7 @@ extension MEPlayerItem {
                 condition.wait()
             }
             if state == .seeking {
-                let time = currentPlaybackTime + startTime
+                let time = currentPlaybackTime
                 allPlayerItemTracks.forEach { $0.seek(time: time) }
                 let timeStamp = Int64(time * TimeInterval(AV_TIME_BASE))
                 // can not seek to key frame
@@ -477,7 +473,7 @@ extension MEPlayerItem {
                 }
             } else {
                 //                        if IS_AVERROR_INVALIDDATA(readResult)
-                error = .init(errorCode: .readFrame, ffmpegErrnum: readResult)
+                error = .init(errorCode: .readFrame, avErrorCode: readResult)
             }
         }
     }
@@ -661,7 +657,7 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
         }
         videoMediaTime = CACurrentMediaTime()
         if isAudioStalled {
-            currentPlaybackTime = time.seconds - options.audioDelay - startTime
+            currentPlaybackTime = time.seconds - options.audioDelay
         }
     }
 
@@ -670,7 +666,7 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
             return
         }
         if !isAudioStalled {
-            currentPlaybackTime = time.seconds - startTime
+            currentPlaybackTime = time.seconds
         }
     }
 
@@ -678,10 +674,10 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
         guard let videoTrack else {
             return nil
         }
-        var desire = currentPlaybackTime + options.audioDelay + startTime
+        var desire = currentPlaybackTime + options.audioDelay
         let predicate: ((VideoVTBFrame) -> Bool)? = force ? nil : { [weak self] frame -> Bool in
             guard let self else { return true }
-            desire = self.currentPlaybackTime + self.options.audioDelay + self.startTime
+            desire = self.currentPlaybackTime + self.options.audioDelay
             if self.isAudioStalled {
                 desire += max(CACurrentMediaTime() - self.videoMediaTime, 0) + self.videoClockDelay
             }
@@ -693,8 +689,10 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
             if frame.seconds + 0.4 < desire {
                 let frameCount = videoTrack.frameCount
                 if frameCount > 0 {
-                    KSLog("dropped video frame frameCount: \(videoTrack.frameCount) frameMaxCount: \(videoTrack.frameMaxCount)")
-                    _ = videoTrack.getOutputRender(where: nil)
+                    KSLog("video delay time: \(desire - frame.seconds) dropped video frame frameCount: \(videoTrack.frameCount) frameMaxCount: \(videoTrack.frameMaxCount)")
+                    if options.dropVideoFrame {
+                        _ = videoTrack.getOutputRender(where: nil)
+                    }
                 }
             }
         }

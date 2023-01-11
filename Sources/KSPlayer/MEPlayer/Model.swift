@@ -11,15 +11,6 @@ import Libavcodec
 
 // MARK: enum
 
-extension NSError {
-    convenience init(errorCode: KSPlayerErrorCode, ffmpegErrnum: Int32) {
-        var errorStringBuffer = [Int8](repeating: 0, count: 512)
-        av_strerror(ffmpegErrnum, &errorStringBuffer, 512)
-        let underlyingError = NSError(domain: "FFmpegDomain", code: Int(ffmpegErrnum), userInfo: [NSLocalizedDescriptionKey: String(cString: errorStringBuffer)])
-        self.init(errorCode: errorCode, userInfo: [NSUnderlyingErrorKey: underlyingError])
-    }
-}
-
 enum MESourceState {
     case idle
     case opening
@@ -57,13 +48,12 @@ protocol MEPlayerDelegate: AnyObject {
 
 public protocol ObjectQueueItem {
     var duration: Int64 { get set }
-    var size: Int64 { get set }
     var position: Int64 { get set }
+    var size: Int32 { get set }
 }
 
 protocol FrameOutput: AnyObject {
     var renderSource: OutputRenderSourceDelegate? { get set }
-    var isPaused: Bool { get set }
 }
 
 protocol MEFrame: ObjectQueueItem {
@@ -96,13 +86,8 @@ public extension KSOptions {
     static var logLevel = LogLevel.warning
     static var stackSize = 32768
     static var isClearVideoWhereReplace = true
-    internal static var channelLayout = AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_Stereo)!
-    #if os(macOS)
-    internal static var audioPlayerSampleRate = Int32(44100)
-    #else
-    internal static var audioPlayerSampleRate = Int32(AVAudioSession.sharedInstance().sampleRate)
-    #endif
-
+    /// true: AVSampleBufferAudioRenderer false: AVAudioEngine
+    static var isUseAudioRenderer = false
     static func colorSpace(ycbcrMatrix: CFString?, transferFunction: CFString?) -> CGColorSpace? {
         switch ycbcrMatrix {
         case kCVImageBufferYCbCrMatrix_ITU_R_709_2:
@@ -169,8 +154,8 @@ extension Timebase {
 
 final class Packet: ObjectQueueItem {
     var duration: Int64 = 0
-    var size: Int64 = 0
     var position: Int64 = 0
+    var size: Int32 = 0
     var assetTrack: FFmpegAssetTrack!
     private(set) var corePacket = av_packet_alloc()
     func fill() {
@@ -179,7 +164,7 @@ final class Packet: ObjectQueueItem {
         }
         position = corePacket.pointee.pts == Int64.min ? corePacket.pointee.dts : corePacket.pointee.pts
         duration = corePacket.pointee.duration
-        size = Int64(corePacket.pointee.size)
+        size = corePacket.pointee.size
     }
 
     deinit {
@@ -191,8 +176,8 @@ final class Packet: ObjectQueueItem {
 final class SubtitleFrame: MEFrame {
     var timebase: Timebase
     var duration: Int64 = 0
-    var size: Int64 = 0
     var position: Int64 = 0
+    var size: Int32 = 0
     let part: SubtitlePart
     init(part: SubtitlePart, timebase: Timebase) {
         self.part = part
@@ -203,21 +188,23 @@ final class SubtitleFrame: MEFrame {
 final class AudioFrame: MEFrame {
     var timebase = Timebase.defaultValue
     var duration: Int64 = 0
-    var size: Int64 = 0
     var position: Int64 = 0
-    var numberOfSamples = 0
+    var size: Int32 = 0
+    var numberOfSamples: UInt32 = 0
+    let channels: UInt32
+    let dataSize: Int
     var data: [UnsafeMutablePointer<UInt8>?]
-    let dataSize: [Int]
-    public init(bufferSize: Int32, channels: Int32) {
-        dataSize = Array(repeating: Int(bufferSize), count: Int(channels))
-        data = (0 ..< channels).map { _ in
+    public init(bufferSize: Int32, channels: UInt32, count: Int) {
+        self.channels = channels
+        dataSize = Int(bufferSize)
+        data = (0 ..< count).map { _ in
             UnsafeMutablePointer<UInt8>.allocate(capacity: Int(bufferSize))
         }
     }
 
     deinit {
         for i in 0 ..< data.count {
-            data[i]?.deinitialize(count: dataSize[i])
+            data[i]?.deinitialize(count: dataSize)
             data[i]?.deallocate()
         }
         data.removeAll()
@@ -227,47 +214,9 @@ final class AudioFrame: MEFrame {
 final class VideoVTBFrame: MEFrame {
     var timebase = Timebase.defaultValue
     var duration: Int64 = 0
-    var size: Int64 = 0
     var position: Int64 = 0
+    var size: Int32 = 0
     var corePixelBuffer: CVPixelBuffer?
-}
-
-extension Dictionary where Key == String {
-    var avOptions: OpaquePointer? {
-        var avOptions: OpaquePointer?
-        forEach { key, value in
-            if let i = value as? Int64 {
-                av_dict_set_int(&avOptions, key, i, 0)
-            } else if let i = value as? Int {
-                av_dict_set_int(&avOptions, key, Int64(i), 0)
-            } else if let string = value as? String {
-                av_dict_set(&avOptions, key, string, 0)
-            } else if let dic = value as? Dictionary {
-                let string = dic.map { "\($0.0)=\($0.1)" }.joined(separator: "\r\n")
-                av_dict_set(&avOptions, key, string, 0)
-            }
-        }
-        return avOptions
-    }
-}
-
-public struct AVError: Error, Equatable {
-    public var code: Int32
-    public var message: String
-
-    init(code: Int32) {
-        self.code = code
-        message = String(avErrorCode: code)
-    }
-}
-
-extension String {
-    init(avErrorCode code: Int32) {
-        let buf = UnsafeMutablePointer<Int8>.allocate(capacity: Int(AV_ERROR_MAX_STRING_SIZE))
-        buf.initialize(repeating: 0, count: Int(AV_ERROR_MAX_STRING_SIZE))
-        defer { buf.deallocate() }
-        self = String(cString: av_make_error_string(buf, Int(AV_ERROR_MAX_STRING_SIZE), code))
-    }
 }
 
 extension Array {

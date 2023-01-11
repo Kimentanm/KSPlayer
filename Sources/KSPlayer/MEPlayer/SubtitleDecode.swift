@@ -22,9 +22,8 @@ class SubtitleDecode: DecodeProtocol {
     private var preSubtitleFrame: SubtitleFrame?
     required init(assetTrack: FFmpegAssetTrack, options: KSOptions, delegate: DecodeResultDelegate) {
         self.delegate = delegate
-        assetTrack.setIsEnabled(!assetTrack.isImageSubtitle)
         do {
-            codecContext = try assetTrack.stream.pointee.codecpar.pointee.ceateContext(options: options)
+            codecContext = try assetTrack.ceateContext(options: options)
         } catch {
             KSLog(error as CustomStringConvertible)
         }
@@ -38,40 +37,35 @@ class SubtitleDecode: DecodeProtocol {
             return
         }
         var gotsubtitle = Int32(0)
-        let len = avcodec_decode_subtitle2(codecContext, &subtitle, &gotsubtitle, packet.corePacket)
-        if len <= 0 {
+        _ = avcodec_decode_subtitle2(codecContext, &subtitle, &gotsubtitle, packet.corePacket)
+        if gotsubtitle == 0 {
             return
         }
-        let (attributedString, image) = text(subtitle: subtitle)
+        let (origin, attributedString, image) = text(subtitle: subtitle)
         let position = packet.position
-        let seconds = packet.assetTrack.timebase.cmtime(for: position).seconds - packet.assetTrack.startTime
-        var end = seconds
-        if subtitle.end_display_time == UInt32.max {
-            end = Double(UInt32.max)
-        } else if subtitle.end_display_time > 0 {
-            end += TimeInterval(subtitle.end_display_time) / 1000.0
-        } else if packet.duration > 0 {
-            end += packet.assetTrack.timebase.cmtime(for: packet.duration).seconds
+        let start = packet.assetTrack.timebase.cmtime(for: position).seconds + TimeInterval(subtitle.start_display_time) / 1000.0
+        var duration = TimeInterval(subtitle.end_display_time - subtitle.start_display_time) / 1000.0
+        if duration == 0 {
+            duration = packet.assetTrack.timebase.cmtime(for: packet.duration).seconds
         }
-        let part = SubtitlePart(seconds + TimeInterval(subtitle.start_display_time) / 1000.0, end, attributedString: attributedString)
+        let part = SubtitlePart(start, start + duration, attributedString: attributedString)
         part.image = image
+        part.origin = origin
         let frame = SubtitleFrame(part: part, timebase: packet.assetTrack.timebase)
         frame.position = position
-        if let preSubtitleFrame, preSubtitleFrame.part.end == Double(UInt32.max) {
-            preSubtitleFrame.part.end = frame.part.start
-        }
         if let preSubtitleFrame, preSubtitleFrame.part == part {
             if let attributedString {
                 preSubtitleFrame.part.text?.append(NSAttributedString(string: "\n"))
                 preSubtitleFrame.part.text?.append(attributedString)
             }
         } else {
+            if let preSubtitleFrame {
+                preSubtitleFrame.part.end = frame.part.start
+            }
             preSubtitleFrame = frame
             delegate?.decodeResult(frame: frame)
         }
-        if gotsubtitle > 0 {
-            avsubtitle_free(&subtitle)
-        }
+        avsubtitle_free(&subtitle)
     }
 
     func doFlushCodec() {
@@ -87,12 +81,16 @@ class SubtitleDecode: DecodeProtocol {
         }
     }
 
-    private func text(subtitle: AVSubtitle) -> (NSMutableAttributedString?, UIImage?) {
+    private func text(subtitle: AVSubtitle) -> (CGPoint, NSMutableAttributedString?, UIImage?) {
         var attributedString: NSMutableAttributedString?
         var images = [(CGRect, CGImage)]()
+        var origin: CGPoint = .zero
         for i in 0 ..< Int(subtitle.num_rects) {
             guard let rect = subtitle.rects[i]?.pointee else {
                 continue
+            }
+            if i == 0 {
+                origin = CGPoint(x: Int(rect.x), y: Int(rect.y))
             }
             if let text = rect.text {
                 if attributedString == nil {
@@ -113,6 +111,9 @@ class SubtitleDecode: DecodeProtocol {
                 }
             }
         }
-        return (attributedString, CGImage.combine(images: images)?.image(quality: 0.2))
+        if images.count > 1 {
+            origin = .zero
+        }
+        return (origin, attributedString, CGImage.combine(images: images)?.image(quality: 0.2))
     }
 }

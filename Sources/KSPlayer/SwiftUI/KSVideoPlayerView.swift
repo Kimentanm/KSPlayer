@@ -10,11 +10,12 @@ import SwiftUI
 @available(iOS 15, tvOS 15, macOS 12, *)
 public struct KSVideoPlayerView: View {
     @StateObject public var subtitleModel = SubtitleModel()
-    @State private var model = ControllerTimeModel()
     @StateObject public var playerCoordinator = KSVideoPlayer.Coordinator()
-    @State var isMaskShow = true
     @State public var url: URL
     public let options: KSOptions
+    @State var isMaskShow = true
+    @State private var model = ControllerTimeModel()
+    @Environment(\.dismiss) private var dismiss
     public init(url: URL, options: KSOptions) {
         _url = .init(initialValue: url)
         self.options = options
@@ -28,26 +29,19 @@ public struct KSVideoPlayerView: View {
                 if let subtile = subtitleModel.selectedSubtitle {
                     let time = current + options.subtitleDelay
                     if let part = subtile.search(for: time) {
-                        subtitleModel.endTime = part.end
-                        if let image = part.image {
-                            subtitleModel.image = image
-                        } else {
-                            subtitleModel.text = part.text
-                        }
+                        subtitleModel.part = part
                     } else {
-                        if time > subtitleModel.endTime {
-                            subtitleModel.image = nil
-                            subtitleModel.text = nil
+                        if let part = subtitleModel.part, part.end > part.start, time > part.end {
+                            subtitleModel.part = nil
                         }
                     }
                 } else {
-                    subtitleModel.image = nil
-                    subtitleModel.text = nil
+                    subtitleModel.part = nil
                 }
             }
             .onStateChanged { playerLayer, state in
                 if state == .readyToPlay {
-                    if let track = playerCoordinator.subtitleTracks.first, playerLayer.options.autoSelectEmbedSubtitle {
+                    if let track = playerLayer.player.tracks(mediaType: .subtitle).first, playerLayer.options.autoSelectEmbedSubtitle {
                         playerCoordinator.selectedSubtitleTrack = track
                     }
                 } else if state == .bufferFinished {
@@ -97,7 +91,7 @@ public struct KSVideoPlayerView: View {
             }
             .edgesIgnoringSafeArea(.all)
             VideoSubtitleView(model: subtitleModel)
-            VideoControllerView(config: playerCoordinator)
+            VideoControllerView(config: playerCoordinator).environmentObject(subtitleModel)
             #if !os(iOS)
                 .onMoveCommand { direction in
                     isMaskShow = true
@@ -115,6 +109,13 @@ public struct KSVideoPlayerView: View {
                         break
                     }
                     #endif
+                }
+                .onExitCommand {
+                    if isMaskShow {
+                        isMaskShow = false
+                    } else {
+                        dismiss()
+                    }
                 }
             #endif
                 .opacity(isMaskShow ? 1 : 0)
@@ -305,9 +306,7 @@ public class SubtitleModel: ObservableObject {
     @Published public var textFont: Font = .largeTitle
     @Published public var textColor: Color = .white
     @Published public var textPositionFromBottom = 0
-    @Published fileprivate var text: NSMutableAttributedString?
-    @Published fileprivate var image: UIImage?
-    fileprivate var endTime = TimeInterval(0)
+    @Published fileprivate var part: SubtitlePart?
 }
 
 @available(iOS 15, tvOS 15, macOS 12, *)
@@ -316,17 +315,19 @@ struct VideoSubtitleView: View {
     var body: some View {
         VStack {
             Spacer()
-            if let image = model.image {
+            if let image = model.part?.image {
                 #if os(macOS)
                 Image(nsImage: image)
                     .resizable()
                     .scaledToFit()
+                    .padding()
                 #else
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
+                    .padding()
                 #endif
-            } else if let text = model.text {
+            } else if let text = model.part?.text {
                 Text(AttributedString(text))
                     .multilineTextAlignment(.center)
                     .font(model.textFont)
@@ -347,6 +348,7 @@ struct VideoSettingView: View {
     var body: some View {
         config.selectedAudioTrack = (config.playerLayer?.player.isMuted ?? false) ? nil : config.audioTracks.first { $0.isEnabled }
         config.selectedVideoTrack = config.videoTracks.first { $0.isEnabled }
+        let subtitleTracks = config.playerLayer?.player.tracks(mediaType: .subtitle) ?? []
         return TabView {
             List {
                 Picker("audio tracks", selection: Binding(get: {
@@ -367,10 +369,10 @@ struct VideoSettingView: View {
                 Picker("subtitle tracks", selection: Binding(get: {
                     config.selectedSubtitleTrack?.trackID
                 }, set: { value in
-                    config.selectedSubtitleTrack = config.subtitleTracks.first { $0.trackID == value }
+                    config.selectedSubtitleTrack = subtitleTracks.first { $0.trackID == value }
                 })) {
                     Text("None").tag(nil as Int32?)
-                    ForEach(config.subtitleTracks, id: \.trackID) { track in
+                    ForEach(subtitleTracks, id: \.trackID) { track in
                         Text(track.name).tag(track.trackID as Int32?)
                     }
                 }

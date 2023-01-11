@@ -26,6 +26,7 @@ struct DemoApp: App {
         KSOptions.isAutoPlay = true
         KSOptions.isSecondOpen = true
         KSOptions.isAccurateSeek = true
+//        KSOptions.isUseAudioRenderer = true
 //        KSOptions.isLoopPlay = true
         let arguments = ProcessInfo.processInfo.arguments.dropFirst()
         var dropNextArg = false
@@ -158,7 +159,7 @@ var objects: [KSPlayerResource] = {
         let options = MEOptions()
         options.videoFilters = "hflip,vflip"
         options.hardwareDecode = false
-        options.startPlayTime = 30
+        options.startPlayTime = 3
         #if os(macOS)
         let moviesDirectory = try? FileManager.default.url(for: .moviesDirectory, in: .userDomainMask, appropriateFor: nil, create: false)
         options.outputURL = moviesDirectory?.appendingPathComponent("recording.mov")
@@ -211,7 +212,9 @@ var objects: [KSPlayerResource] = {
     }
 
     if let url = URL(string: "https://bitmovin-a.akamaihd.net/content/dataset/multi-codec/hevc/stream_fmp4.m3u8") {
-        objects.append(KSPlayerResource(url: url, options: KSOptions(), name: "fmp4"))
+        let options = KSOptions()
+        options.dropVideoFrame = false
+        objects.append(KSPlayerResource(url: url, options: options, name: "fmp4"))
     }
 
     if let url = URL(string: "http://116.199.5.51:8114/00000000/hls/index.m3u8?Fsv_chan_hls_se_idx=188&FvSeid=1&Fsv_ctype=LIVES&Fsv_otype=1&Provider_id=&Pcontent_id=.m3u8") {

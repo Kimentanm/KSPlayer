@@ -11,19 +11,17 @@ import VideoToolbox
 class VideoToolboxDecode: DecodeProtocol {
     private weak var delegate: DecodeResultDelegate?
     private var session: DecompressionSession?
-    private let codecparPtr: UnsafeMutablePointer<AVCodecParameters>
     private let timebase: Timebase
     private let options: KSOptions
     private var startTime = Int64(0)
     private var lastPosition = Int64(0)
     private var error: NSError?
     required convenience init(assetTrack: FFmpegAssetTrack, options: KSOptions, delegate: DecodeResultDelegate) {
-        self.init(assetTrack: assetTrack, options: options, session: DecompressionSession(codecparPtr: assetTrack.stream.pointee.codecpar, options: options), delegate: delegate)
+        self.init(assetTrack: assetTrack, options: options, session: DecompressionSession(codecpar: assetTrack.codecpar, options: options), delegate: delegate)
     }
 
     init(assetTrack: FFmpegAssetTrack, options: KSOptions, session: DecompressionSession?, delegate: DecodeResultDelegate) {
         timebase = assetTrack.timebase
-        codecparPtr = assetTrack.stream.pointee.codecpar
         self.options = options
         self.session = session
         self.delegate = delegate
@@ -35,12 +33,14 @@ class VideoToolboxDecode: DecodeProtocol {
             return
         }
         let sampleBuffer = try session.formatDescription.getSampleBuffer(isConvertNALSize: session.isConvertNALSize, data: data, size: Int(corePacket.size))
-        let flags: VTDecodeFrameFlags = [._EnableAsynchronousDecompression]
+        let flags: VTDecodeFrameFlags = [
+            ._EnableAsynchronousDecompression,
+        ]
         var flagOut = VTDecodeInfoFlags.frameDropped
         let pts = corePacket.pts
         let packetFlags = corePacket.flags
         let duration = corePacket.duration
-        let size = Int64(corePacket.size)
+        let size = corePacket.size
         let status = VTDecompressionSessionDecodeFrame(session.decompressionSession, sampleBuffer: sampleBuffer, flags: flags, infoFlagsOut: &flagOut) { [weak self] status, infoFlags, imageBuffer, _, _ in
             guard let self, !infoFlags.contains(.frameDropped) else {
                 return
@@ -48,10 +48,7 @@ class VideoToolboxDecode: DecodeProtocol {
             guard status == noErr else {
                 if status == kVTInvalidSessionErr || status == kVTVideoDecoderMalfunctionErr || status == kVTVideoDecoderBadDataErr {
                     if corePacket.flags & AV_PKT_FLAG_KEY == 1 {
-                        self.error = NSError(errorCode: .codecVideoReceiveFrame, ffmpegErrnum: status)
-                    } else {
-                        // 解决从后台切换到前台，解码失败的问题
-                        self.doFlushCodec()
+                        self.error = NSError(errorCode: .codecVideoReceiveFrame, avErrorCode: status)
                     }
                 }
                 return
@@ -75,7 +72,7 @@ class VideoToolboxDecode: DecodeProtocol {
         }
         if status == kVTInvalidSessionErr || status == kVTVideoDecoderMalfunctionErr || status == kVTVideoDecoderBadDataErr {
             if corePacket.flags & AV_PKT_FLAG_KEY == 1 {
-                throw NSError(errorCode: .codecVideoReceiveFrame, ffmpegErrnum: status)
+                throw NSError(errorCode: .codecVideoReceiveFrame, avErrorCode: status)
             } else {
                 // 解决从后台切换到前台，解码失败的问题
                 doFlushCodec()
@@ -84,7 +81,9 @@ class VideoToolboxDecode: DecodeProtocol {
     }
 
     func doFlushCodec() {
-        session = DecompressionSession(codecparPtr: codecparPtr, options: options)
+        if let session {
+            self.session = DecompressionSession(codecpar: session.codecpar, options: options)
+        }
         lastPosition = 0
         startTime = 0
     }
@@ -103,8 +102,9 @@ class DecompressionSession {
     fileprivate let isConvertNALSize: Bool
     fileprivate let formatDescription: CMFormatDescription
     fileprivate let decompressionSession: VTDecompressionSession
-    init?(codecparPtr: UnsafeMutablePointer<AVCodecParameters>, options: KSOptions) {
-        let codecpar = codecparPtr.pointee
+    fileprivate var codecpar: AVCodecParameters
+    init?(codecpar: AVCodecParameters, options: KSOptions) {
+        self.codecpar = codecpar
         let isFullRangeVideo = codecpar.color_range == AVCOL_RANGE_JPEG
         let format = AVPixelFormat(codecpar.format)
         guard let pixelFormatType = format.osType(fullRange: isFullRangeVideo) else {
@@ -136,7 +136,7 @@ class DecompressionSession {
                 guard avio_open_dyn_buf(&ioContext) == 0 else {
                     return nil
                 }
-                ff_isom_write_vpcc(options.formatCtx, ioContext, codecparPtr)
+                ff_isom_write_vpcc(options.formatCtx, ioContext, &self.codecpar)
                 extradataSize = avio_close_dyn_buf(ioContext, &extradata)
                 guard let extradata else {
                     return nil
@@ -228,7 +228,7 @@ extension CMFormatDescription {
                 let demuxSze = avio_close_dyn_buf(ioContext, &demuxBuffer)
                 return try createSampleBuffer(data: demuxBuffer, size: Int(demuxSze))
             } else {
-                throw NSError(errorCode: .codecVideoReceiveFrame, ffmpegErrnum: status)
+                throw NSError(errorCode: .codecVideoReceiveFrame, avErrorCode: status)
             }
         } else {
             return try createSampleBuffer(data: data, size: size)
@@ -246,7 +246,7 @@ extension CMFormatDescription {
                 return sampleBuffer
             }
         }
-        throw NSError(errorCode: .codecVideoReceiveFrame, ffmpegErrnum: status)
+        throw NSError(errorCode: .codecVideoReceiveFrame, avErrorCode: status)
         // swiftlint:enable line_length
     }
 }

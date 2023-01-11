@@ -158,6 +158,11 @@ public extension NSImage {
     convenience init(cgImage: CGImage) {
         self.init(cgImage: cgImage, size: NSSize.zero)
     }
+
+    @available(macOS 11.0, *)
+    convenience init?(systemName: String) {
+        self.init(systemSymbolName: systemName, accessibilityDescription: nil)
+    }
 }
 
 extension NSButton {
@@ -172,16 +177,10 @@ extension NSButton {
 
     var tintColor: UIColor? {
         get {
-            if #available(OSX 10.14, *) {
-                return contentTintColor
-            } else {
-                return nil
-            }
+            contentTintColor
         }
         set {
-            if #available(OSX 10.14, *) {
-                contentTintColor = newValue
-            } else {}
+            contentTintColor = newValue
         }
     }
 }
@@ -256,33 +255,6 @@ public extension NSSlider {
             nil
         }
         set {}
-    }
-
-    @IBInspectable var maximumValue: Float {
-        get {
-            Float(maxValue)
-        }
-        set {
-            maxValue = Double(newValue)
-        }
-    }
-
-    @IBInspectable var minimumValue: Float {
-        get {
-            Float(minValue)
-        }
-        set {
-            minValue = Double(newValue)
-        }
-    }
-
-    @IBInspectable var value: Float {
-        get {
-            floatValue
-        }
-        set {
-            floatValue = newValue
-        }
     }
 }
 
@@ -500,6 +472,7 @@ public class KSSlider: NSSlider {
     weak var delegate: KSSliderDelegate?
     public var trackHeigt = CGFloat(2)
     public var isPlayable = false
+    public var isUserInteractionEnabled: Bool = true
     public convenience init() {
         self.init(frame: .zero)
     }
@@ -516,10 +489,39 @@ public class KSSlider: NSSlider {
     }
 
     @objc private func progressSliderTouchEnded(_ sender: KSSlider) {
-        delegate?.slider(value: Double(sender.floatValue), event: .touchUpInside)
+        if isUserInteractionEnabled {
+            delegate?.slider(value: Double(sender.floatValue), event: .touchUpInside)
+        }
     }
 
     open func setThumbImage(_: UIImage?, for _: State) {}
+
+    @IBInspectable var maximumValue: Float {
+        get {
+            Float(maxValue)
+        }
+        set {
+            maxValue = Double(newValue)
+        }
+    }
+
+    @IBInspectable var minimumValue: Float {
+        get {
+            Float(minValue)
+        }
+        set {
+            minValue = Double(newValue)
+        }
+    }
+
+    @IBInspectable var value: Float {
+        get {
+            floatValue
+        }
+        set {
+            floatValue = newValue
+        }
+    }
 }
 
 extension UIView {
@@ -544,6 +546,8 @@ open class UIAlertController: UIViewController {
     public convenience init(title _: String?, message _: String?, preferredStyle _: UIAlertController.Style) {
         self.init()
     }
+
+    var preferredAction: UIAlertAction?
 
     open func addAction(_: UIAlertAction) {}
 }

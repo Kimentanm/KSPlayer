@@ -23,6 +23,7 @@ English | [简体中文](./README_CN.md)
 - Picture in Picture
 - Record video
 - De-interlace auto detect
+- Spatial Audio 
 - 360° panorama video.
 
 ## Requirements
@@ -31,6 +32,10 @@ English | [简体中文](./README_CN.md)
 
 ## Demo
 
+```bash
+cd Demo
+pod install
+```
 - Open Demo/Demo.xcworkspace with Xcode.
 
 ## Quick Start
@@ -43,8 +48,8 @@ Make sure to use the latest version **cocoapods 1.10.1+**, which can be installe
 target 'ProjectName' do
     use_frameworks!
     pod 'KSPlayer',:git => 'https://github.com/kingslay/KSPlayer.git', :branch => 'develop'
-    pod 'FFmpeg',:git => 'https://github.com/kingslay/KSPlayer.git', :branch => 'develop'
-    pod 'OpenSSL',:git => 'https://github.com/kingslay/KSPlayer.git', :branch => 'develop'
+    pod 'FFmpeg',:git => 'https://github.com/kingslay/FFmpegKit.git', :branch => 'main'
+    pod 'OpenSSL',:git => 'https://github.com/kingslay/FFmpegKit.git', :branch => 'main'
 end
 ```
 
@@ -225,7 +230,6 @@ public protocol PlayerControllerDelegate: class {
     public var autoSelectEmbedSubtitle = true
     public var asynchronousDecompression = false
     public var autoDeInterlace = false
-    @Published var preferredFramesPerSecond = Float(60)
   }
 
   ```
@@ -234,23 +238,6 @@ public protocol PlayerControllerDelegate: class {
 ## Effect
 
 ![gif](./Demo/demo.gif)
-
-## Custom FFmpeg
-edit BuildFFmpeg.swift And run
-```bash
-swift run build-FFmpeg enable-openssl
-```
-
-## Debug FFmpeg
-
-```bash
-swift run build-FFmpeg enable-debug
-```
-
-run target TracyPlayer  
-
-
-![6](./Documents/6.png?raw=true)
 
 ## Developments and Tests
 
@@ -271,6 +258,8 @@ Your user icon or company logo shows up this with a link to your home page.
 [skrew](https://github.com/skrew)
 
 [mrpajzl](https://github.com/mrpajzl)
+
+[byMohamedali](https://github.com/byMohamedali)
 
 ## Communication
 
