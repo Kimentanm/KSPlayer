@@ -157,7 +157,7 @@ open class VideoPlayerView: PlayerView {
             changePlaybackRate(button: button)
         } else if type == .definition {
             guard let resource, resource.definitions.count > 1 else { return }
-            let alertController = UIAlertController(title: NSLocalizedString("select video quality", comment: ""), message: nil, preferredStyle: preferredStyle())
+            let alertController = UIAlertController(title: NSLocalizedString("选择分辨率", comment: ""), message: nil, preferredStyle: preferredStyle())
             for (index, definition) in resource.definitions.enumerated() {
                 let action = UIAlertAction(title: definition.definition, style: .default) { [weak self] _ in
                     guard let self, index != self.currentDefinition else { return }
@@ -166,7 +166,7 @@ open class VideoPlayerView: PlayerView {
                 action.setValue(index == currentDefinition, forKey: "checked")
                 alertController.addAction(action)
             }
-            alertController.addAction(UIAlertAction(title: NSLocalizedString("cancel", comment: ""), style: .cancel, handler: nil))
+            alertController.addAction(UIAlertAction(title: NSLocalizedString("取消", comment: ""), style: .cancel, handler: nil))
             viewController?.present(alertController, animated: true, completion: nil)
         } else if type == .pictureInPicture {
             if #available(tvOS 14.0, *) {
@@ -201,7 +201,7 @@ open class VideoPlayerView: PlayerView {
     }
 
     open func changePlaybackRate(button: UIButton) {
-        let alertController = UIAlertController(title: NSLocalizedString("select speed", comment: ""), message: nil, preferredStyle: preferredStyle())
+        let alertController = UIAlertController(title: NSLocalizedString("选择倍速", comment: ""), message: nil, preferredStyle: preferredStyle())
         [0.75, 1.0, 1.25, 1.5, 2.0].forEach { rate in
             let title = "\(rate)X"
             let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
@@ -212,7 +212,7 @@ open class VideoPlayerView: PlayerView {
             action.setValue(title == button.title, forKey: "checked")
             alertController.addAction(action)
         }
-        alertController.addAction(UIAlertAction(title: NSLocalizedString("cancel", comment: ""), style: .cancel, handler: nil))
+        alertController.addAction(UIAlertAction(title: NSLocalizedString("取消", comment: ""), style: .cancel, handler: nil))
         viewController?.present(alertController, animated: true, completion: nil)
     }
 
