@@ -112,9 +112,7 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
             audioStreamBasicDescription = AudioStreamBasicDescription(mSampleRate: Float64(codecpar.sample_rate), mFormatID: codecpar.codec_id.mediaSubType.rawValue, mFormatFlags: formatFlags, mBytesPerPacket: bytesPerSample * channelsPerFrame, mFramesPerPacket: 1, mBytesPerFrame: bytesPerSample * channelsPerFrame, mChannelsPerFrame: channelsPerFrame, mBitsPerChannel: bytesPerSample * 8, mReserved: 0)
             description += ", \(codecpar.sample_rate)Hz"
             description += ", \(codecpar.ch_layout.description)"
-            var str = [Int8](repeating: 0, count: 64)
-            _ = av_channel_layout_describe(&codecpar.ch_layout, &str, str.count)
-            channelLayoutDescribe = String(cString: str)
+            channelLayoutDescribe = "\(codecpar.ch_layout.description)"
             description += ", \(channelLayoutDescribe)"
             if let name = av_get_sample_fmt_name(AVSampleFormat(rawValue: codecpar.format)) {
                 let fmt = String(cString: name)
