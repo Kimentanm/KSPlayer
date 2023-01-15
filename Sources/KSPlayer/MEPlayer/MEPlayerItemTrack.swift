@@ -113,7 +113,6 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
             description += ", \(codecpar.sample_rate)Hz"
             description += ", \(codecpar.ch_layout.description)"
             channelLayoutDescribe = "\(codecpar.ch_layout.description)"
-            description += ", \(channelLayoutDescribe)"
             if let name = av_get_sample_fmt_name(AVSampleFormat(rawValue: codecpar.format)) {
                 let fmt = String(cString: name)
                 description += ", \(fmt)"
