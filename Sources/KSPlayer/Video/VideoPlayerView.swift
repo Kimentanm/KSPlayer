@@ -258,7 +258,7 @@ open class VideoPlayerView: PlayerView {
             toolBar.videoSwitchButton.isHidden = layer.player.tracks(mediaType: .video).count < 2
             toolBar.audioSwitchButton.isHidden = layer.player.tracks(mediaType: .audio).count < 2
             toolBar.srtButton.isHidden = srtControl.srtListCount == 0
-            buildMenusForButtons()
+            // buildMenusForButtons()
         case .buffering:
             isPlayed = true
             replayButton.isHidden = true
