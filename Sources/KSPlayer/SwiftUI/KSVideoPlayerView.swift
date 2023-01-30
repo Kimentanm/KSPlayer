@@ -184,7 +184,8 @@ struct VideoControllerView: View {
                     Button {
                         dismiss()
                     } label: {
-                        Image(systemName: "xmark").imageScale(.large)
+                        Image(systemName: "xmark")
+                            .font(.system(.title))
                     }
                     Button {
                         config.playerLayer?.isPipActive.toggle()
@@ -212,14 +213,10 @@ struct VideoControllerView: View {
                     Button {
                         isShowSetting.toggle()
                     } label: {
-                        Image(systemName: "ellipsis.circle").frame(minWidth: 20, minHeight: 20)
+                        Image(systemName: "ellipsis.circle").font(.system(.title))
                     }
                 }
             }
-            #if os(tvOS)
-//             can not add focusSection
-            .focusSection()
-            #endif
             Spacer()
             HStack {
                 Spacer()
@@ -251,7 +248,7 @@ struct VideoControllerView: View {
                 #endif
                 Spacer()
             }
-            .imageScale(.large)
+            .font(.system(.title))
             Spacer()
         }
         .padding()
@@ -260,6 +257,8 @@ struct VideoControllerView: View {
         }
         .foregroundColor(.white)
         #if os(tvOS)
+            //             can not add focusSection
+            .focusSection()
             .onPlayPauseCommand {
                 config.isPlay.toggle()
             }
