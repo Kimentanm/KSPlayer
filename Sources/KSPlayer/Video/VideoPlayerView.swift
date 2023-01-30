@@ -448,18 +448,21 @@ extension VideoPlayerView {
             let currentRate = Double(self?.playerLayer?.player.playbackRate ?? 1)
             guard selectedSpeed != currentRate else { return }
             self?.playerLayer?.player.playbackRate = Float(selectedSpeed)
+            self?.buildMenusForButtons()
         }
 
         let videoTracks = playerLayer?.player.tracks(mediaType: .video) ?? []
         let videoMenu = KSMenuBuilder.audioVideoChangeMenu(videoTracks.first(where: { $0.isEnabled }),
                                                            availableTracks: videoTracks) { [weak self] track in
             self?.playerLayer?.player.select(track: track)
+            self?.buildMenusForButtons()
         }
 
         let audioTracks = playerLayer?.player.tracks(mediaType: .audio) ?? []
         let audioMenu = KSMenuBuilder.audioVideoChangeMenu(audioTracks.first(where: { $0.isEnabled }),
                                                            availableTracks: audioTracks) { [weak self] track in
             self?.playerLayer?.player.select(track: track)
+            self?.buildMenusForButtons()
         }
 
         let subtitles = srtControl.filterInfos { _ in true }
@@ -467,6 +470,7 @@ extension VideoPlayerView {
                                                   availableSubtitles: subtitles) { [weak self] selectedSrt in
             guard self?.srtControl.view.selectedInfo?.subtitleID != selectedSrt?.subtitleID else { return }
             self?.srtControl.view.selectedInfo = selectedSrt
+            self?.buildMenusForButtons()
         }
         #if !os(tvOS)
         toolBar.definitionButton.menu = definitionsMenu

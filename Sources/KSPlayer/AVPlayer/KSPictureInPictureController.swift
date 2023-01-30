@@ -32,7 +32,7 @@ public class KSPictureInPictureController: AVPictureInPictureController {
                 navigationController.viewControllers = viewControllers
             }
             if viewControllers.firstIndex(of: viewController) == nil {
-                navigationController.pushViewController(viewController, animated: true)
+                // navigationController.pushViewController(viewController, animated: true)
             }
         }
         #endif
@@ -58,7 +58,7 @@ public class KSPictureInPictureController: AVPictureInPictureController {
                 view.player.isMuted = true
                 pre.view?.isPipActive = false
             } else {
-                self.navigationController?.popViewController(animated: true)
+                // self.navigationController?.popViewController(animated: true)
             }
         }
         #endif
