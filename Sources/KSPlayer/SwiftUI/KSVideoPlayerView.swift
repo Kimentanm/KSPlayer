@@ -315,17 +315,15 @@ struct VideoSubtitleView: View {
         VStack {
             Spacer()
             if let image = model.part?.image {
-                #if os(macOS)
-                Image(nsImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .padding()
-                #else
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .padding()
-                #endif
+                GeometryReader { geometry in
+                    let fitRect = image.fitRect(geometry.size)
+                    Image(uiImage: image)
+                        .resizable()
+                        .offset(CGSize(width: fitRect.origin.x, height: fitRect.origin.y))
+                        .frame(width: fitRect.size.width, height: fitRect.size.height)
+                }
+                .scaledToFit()
+                .padding()
             } else if let text = model.part?.text {
                 Text(AttributedString(text))
                     .multilineTextAlignment(.center)
@@ -334,6 +332,24 @@ struct VideoSubtitleView: View {
                     .padding(.bottom, CGFloat(model.textPositionFromBottom))
             }
         }
+    }
+}
+
+#if os(macOS)
+public extension Image {
+    init(uiImage: UIImage) {
+        self.init(nsImage: uiImage)
+    }
+}
+#endif
+
+public extension UIImage {
+    func fitRect(_ fitSize: CGSize) -> CGRect {
+        let hZoom = fitSize.width / size.width
+        let vZoom = fitSize.height / size.height
+        let zoom = min(min(hZoom, vZoom), 1)
+        let newSize = size * zoom
+        return CGRect(origin: CGPoint(x: (fitSize.width - newSize.width) / 2, y: fitSize.height - newSize.height), size: newSize)
     }
 }
 

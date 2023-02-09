@@ -361,20 +361,19 @@ extension MEPlayerItem {
         }
         readOperation?.queuePriority = .veryHigh
         readOperation?.qualityOfService = .userInteractive
-        if let openOperation {
-            readOperation?.addDependency(openOperation)
-        }
         if let readOperation {
             operationQueue.addOperation(readOperation)
         }
     }
 
     private func readThread() {
-        if let startPlayTime = options.startPlayTime {
-            currentPlaybackTime = startPlayTime
-            state = .seeking
-        } else {
-            state = .reading
+        if state == .opened {
+            if let startPlayTime = options.startPlayTime {
+                currentPlaybackTime = startPlayTime
+                state = .seeking
+            } else {
+                state = .reading
+            }
         }
         allPlayerItemTracks.forEach { $0.decode() }
         while [MESourceState.paused, .seeking, .reading].contains(state) {
@@ -383,7 +382,6 @@ extension MEPlayerItem {
             }
             if state == .seeking {
                 let time = currentPlaybackTime
-                allPlayerItemTracks.forEach { $0.seek(time: time) }
                 let timeStamp = Int64(time * TimeInterval(AV_TIME_BASE))
                 // can not seek to key frame
 //                let result = avformat_seek_file(formatCtx, -1, Int64.min, timeStamp, Int64.max, options.seekFlags)
@@ -400,8 +398,11 @@ extension MEPlayerItem {
                 }
                 isSeek = true
                 allPlayerItemTracks.forEach { $0.seek(time: time) }
-                seekingCompletionHandler?(result >= 0)
-                seekingCompletionHandler = nil
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.seekingCompletionHandler?(result >= 0)
+                    self.seekingCompletionHandler = nil
+                }
                 state = .reading
             } else if state == .reading {
                 autoreleasepool {
@@ -465,7 +466,7 @@ extension MEPlayerItem {
             if readResult == AVError.eof.code || formatCtx?.pointee.pb?.pointee.eof_reached == 1 {
                 if options.isLoopPlay, allPlayerItemTracks.allSatisfy({ !$0.isLoopModel }) {
                     allPlayerItemTracks.forEach { $0.isLoopModel = true }
-                    _ = av_seek_frame(formatCtx, -1, 0, AVSEEK_FLAG_BACKWARD)
+                    _ = av_seek_frame(formatCtx, -1, Int64(startTime), AVSEEK_FLAG_BACKWARD)
                 } else {
                     allPlayerItemTracks.forEach { $0.isEndOfFile = true }
                     state = .finished
@@ -552,21 +553,15 @@ extension MEPlayerItem: MediaPlayback {
         self.closeOperation = closeOperation
     }
 
-    func seek(time: TimeInterval) async -> Bool {
-        await withCheckedContinuation { continuation in
-            seek(time: time) { result in
-                continuation.resume(returning: result)
-            }
-        }
-    }
-
-    private func seek(time: TimeInterval, completion: @escaping ((Bool) -> Void)) {
+    internal func seek(time: TimeInterval, completion: @escaping ((Bool) -> Void)) {
         if state == .reading || state == .paused {
             state = .seeking
             currentPlaybackTime = time
             seekingCompletionHandler = completion
             condition.broadcast()
+            allPlayerItemTracks.forEach { $0.seek(time: time) }
         } else if state == .finished {
+            state = .seeking
             currentPlaybackTime = time
             seekingCompletionHandler = completion
             read()
@@ -607,8 +602,7 @@ extension MEPlayerItem: CodecCapacityDelegate {
                 audioTrack?.isLoopModel = false
                 videoTrack?.isLoopModel = false
                 if state == .finished {
-                    currentPlaybackTime = 0
-                    read()
+                    seek(time: startTime) { _ in }
                 }
             }
         }
