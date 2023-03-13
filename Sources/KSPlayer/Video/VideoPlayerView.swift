@@ -232,6 +232,16 @@ open class VideoPlayerView: PlayerView {
         layoutIfNeeded()
     }
 
+    open func showLoader() {
+        loadingIndector.isHidden = false
+        loadingIndector.startAnimating()
+    }
+
+    open func hideLoader() {
+        loadingIndector.isHidden = true
+        loadingIndector.stopAnimating()
+    }
+
     /// Add Customize functions here
     open func customizeUIComponents() {
         tapGesture.addTarget(self, action: #selector(tapGestureAction(_:)))
@@ -696,16 +706,6 @@ extension VideoPlayerView {
         }
         DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + KSOptions.animateDelayTimeInterval,
                                       execute: delayItem!)
-    }
-
-    private func showLoader() {
-        loadingIndector.isHidden = false
-        loadingIndector.startAnimating()
-    }
-
-    private func hideLoader() {
-        loadingIndector.isHidden = true
-        loadingIndector.stopAnimating()
     }
 
     private func addConstraint() {
