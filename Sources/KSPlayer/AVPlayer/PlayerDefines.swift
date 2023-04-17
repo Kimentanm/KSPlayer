@@ -106,6 +106,7 @@ public protocol MediaPlayerTrack: CustomStringConvertible {
     var audioStreamBasicDescription: AudioStreamBasicDescription? { get }
     var dovi: DOVIDecoderConfigurationRecord? { get }
     var fieldOrder: FFmpegFieldOrder { get }
+    var channelLayoutDescribe: String { get }
     func setIsEnabled(_ isEnabled: Bool)
 }
 

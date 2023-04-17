@@ -134,14 +134,23 @@ open class IOSVideoPlayerView: VideoPlayerView {
             fullVC.view.addSubview(self)
             translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                topAnchor.constraint(equalTo: fullVC.view.readableTopAnchor),
+//                 topAnchor.constraint(equalTo: fullVC.view.readableTopAnchor),
                 leadingAnchor.constraint(equalTo: fullVC.view.leadingAnchor),
                 trailingAnchor.constraint(equalTo: fullVC.view.trailingAnchor),
                 bottomAnchor.constraint(equalTo: fullVC.view.bottomAnchor),
             ])
+            if #available(iOS 16.0, *) {
+                NSLayoutConstraint.activate([
+                    topAnchor.constraint(equalTo: fullVC.view.topAnchor)
+                ])
+            } else {
+                NSLayoutConstraint.activate([
+                    topAnchor.constraint(equalTo: fullVC.view.readableTopAnchor)
+                ])
+            }
             fullVC.modalPresentationStyle = .fullScreen
             fullVC.modalPresentationCapturesStatusBarAppearance = true
-            fullVC.transitioningDelegate = self
+//             fullVC.transitioningDelegate = self
             viewController.present(fullVC, animated: true) {
                 KSOptions.supportedInterfaceOrientations = fullVC.supportedInterfaceOrientations
             }
@@ -151,14 +160,14 @@ open class IOSVideoPlayerView: VideoPlayerView {
             }
             let presentingVC = viewController.presentingViewController ?? viewController
             KSOptions.supportedInterfaceOrientations = .portrait
+            self.originalSuperView?.addSubview(self)
+            if let constraints = self.originalframeConstraints, constraints.count > 0 {
+                NSLayoutConstraint.activate(constraints)
+            } else {
+                self.translatesAutoresizingMaskIntoConstraints = true
+                self.frame = self.originalFrame
+            }
             presentingVC.dismiss(animated: true) {
-                self.originalSuperView?.addSubview(self)
-                if let constraints = self.originalframeConstraints, constraints.count > 0 {
-                    NSLayoutConstraint.activate(constraints)
-                } else {
-                    self.translatesAutoresizingMaskIntoConstraints = true
-                    self.frame = self.originalFrame
-                }
                 if let originalOrientations = self.originalOrientations {
                     KSOptions.supportedInterfaceOrientations = originalOrientations
                 }

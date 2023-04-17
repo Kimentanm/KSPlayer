@@ -232,6 +232,16 @@ open class VideoPlayerView: PlayerView {
         layoutIfNeeded()
     }
 
+    open func showLoader() {
+        loadingIndector.isHidden = false
+        loadingIndector.startAnimating()
+    }
+
+    open func hideLoader() {
+        loadingIndector.isHidden = true
+        loadingIndector.stopAnimating()
+    }
+
     /// Add Customize functions here
     open func customizeUIComponents() {
         tapGesture.addTarget(self, action: #selector(tapGestureAction(_:)))
@@ -439,6 +449,7 @@ extension VideoPlayerView {
             let currentRate = Double(self?.playerLayer?.player.playbackRate ?? 1)
             guard selectedSpeed != currentRate else { return }
             self?.playerLayer?.player.playbackRate = Float(selectedSpeed)
+            self?.buildMenusForButtons()
         }
 
         let videoTracks = playerLayer?.player.tracks(mediaType: .video) ?? []
@@ -446,6 +457,7 @@ extension VideoPlayerView {
                                                            availableTracks: videoTracks)
         { [weak self] track in
             self?.playerLayer?.player.select(track: track)
+            self?.buildMenusForButtons()
         }
 
         let audioTracks = playerLayer?.player.tracks(mediaType: .audio) ?? []
@@ -453,6 +465,7 @@ extension VideoPlayerView {
                                                            availableTracks: audioTracks)
         { [weak self] track in
             self?.playerLayer?.player.select(track: track)
+            self?.buildMenusForButtons()
         }
 
         let subtitles = srtControl.filterInfos { _ in true }
@@ -461,6 +474,7 @@ extension VideoPlayerView {
         { [weak self] selectedSrt in
             guard self?.srtControl.view.selectedInfo?.subtitleID != selectedSrt?.subtitleID else { return }
             self?.srtControl.view.selectedInfo = selectedSrt
+            self?.buildMenusForButtons()
         }
         #if !os(tvOS)
         toolBar.definitionButton.menu = definitionsMenu
@@ -1017,4 +1031,12 @@ extension UIView {
             return bottomAnchor
         }
     }
+}
+
+extension Float64 {
+
+    var cleanZero : String {
+        return self.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", self) : String(self)
+    }
+
 }

@@ -36,7 +36,7 @@ public class KSPictureInPictureController: AVPictureInPictureController {
                         navigationController.viewControllers = viewControllers
                     }
                     if viewControllers.firstIndex(of: viewController) == nil {
-                        navigationController.pushViewController(viewController, animated: true)
+//                         navigationController.pushViewController(viewController, animated: true)
                     }
                 } else {
                     presentingViewController?.present(originalViewController, animated: true)
@@ -68,7 +68,7 @@ public class KSPictureInPictureController: AVPictureInPictureController {
                 pre.view?.isPipActive = false
             } else {
                 if let navigationController {
-                    navigationController.popViewController(animated: true)
+//                     navigationController.popViewController(animated: true)
                     #if os(iOS)
                     if navigationController.tabBarController != nil, navigationController.viewControllers.count == 1 {
                         DispatchQueue.main.async { [weak self] in

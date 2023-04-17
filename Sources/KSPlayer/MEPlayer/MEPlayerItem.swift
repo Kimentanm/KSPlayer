@@ -94,7 +94,7 @@ final class MEPlayerItem {
         timer.fireDate = Date.distantFuture
         avformat_network_init()
         av_log_set_callback { ptr, level, format, args in
-            guard let format else {
+            guard let format, level <= KSOptions.logLevel.rawValue else {
                 return
             }
             var log = String(cString: format)
@@ -102,32 +102,19 @@ final class MEPlayerItem {
             if let arguments {
                 log = NSString(format: log, arguments: arguments) as String
             }
+            // 找不到解码器
+            if log.hasPrefix("parser not found for codec") {}
             if let ptr {
-                let avclass = ptr.assumingMemoryBound(to: UnsafePointer<AVClass>.self).pointee
-                if avclass == &ffurl_context_class {
-                    let context = ptr.assumingMemoryBound(to: URLContext.self).pointee
-                    if let opaque = context.interrupt_callback.opaque {
-                        let formatContext = Unmanaged<MEPlayerItem>.fromOpaque(opaque).takeUnretainedValue()
-                        formatContext.options.io(log: log)
-                        if log.starts(with: "Will reconnect at") {
-                            formatContext.videoTrack?.seekTime = formatContext.currentPlaybackTime
-                            formatContext.audioTrack?.seekTime = formatContext.currentPlaybackTime
-                        }
-                    }
-
-                } else if avclass == avfilter_get_class() {
-                    let context = ptr.assumingMemoryBound(to: AVFilterContext.self).pointee
-                    if let opaque = context.graph?.pointee.opaque {
+                let context = ptr.assumingMemoryBound(to: UnsafePointer<AVClass>.self).pointee
+                if context == avfilter_get_class() {
+                    let filterContext = ptr.assumingMemoryBound(to: AVFilterContext.self).pointee
+                    if let opaque = filterContext.graph.pointee.opaque {
                         let options = Unmanaged<KSOptions>.fromOpaque(opaque).takeUnretainedValue()
                         options.filter(log: log)
                     }
                 }
             }
-            // 找不到解码器
-            if log.hasPrefix("parser not found for codec") {
-                KSLog(log)
-            }
-            KSLog(log, logLevel: LogLevel(rawValue: level) ?? .warning)
+            KSLog(log)
         }
         operationQueue.name = "KSPlayer_" + String(describing: self).components(separatedBy: ".").last!
         operationQueue.maxConcurrentOperationCount = 1

@@ -35,6 +35,7 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
     var timebase: Timebase = .defaultValue
     var subtitle: SyncPlayerItemTrack<SubtitleFrame>?
     var closedCaptionsTrack: FFmpegAssetTrack?
+    public let channelLayoutDescribe: String
     convenience init?(stream: UnsafeMutablePointer<AVStream>) {
         let codecpar = stream.pointee.codecpar.pointee
         self.init(codecpar: codecpar)
@@ -119,6 +120,8 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
             audioStreamBasicDescription = AudioStreamBasicDescription(mSampleRate: Float64(codecpar.sample_rate), mFormatID: codecpar.codec_id.mediaSubType.rawValue, mFormatFlags: formatFlags, mBytesPerPacket: bytesPerSample * channelsPerFrame, mFramesPerPacket: 1, mBytesPerFrame: bytesPerSample * channelsPerFrame, mChannelsPerFrame: channelsPerFrame, mBitsPerChannel: bytesPerSample * 8, mReserved: 0)
             description += ", \(codecpar.sample_rate)Hz"
             description += ", \(codecpar.ch_layout.description)"
+            channelLayoutDescribe = "\(codecpar.ch_layout.description)"
+            description += ", \(channelLayoutDescribe)"
             if let name = av_get_sample_fmt_name(AVSampleFormat(rawValue: codecpar.format)) {
                 let fmt = String(cString: name)
                 description += ", \(fmt)"
@@ -126,11 +129,13 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
         } else if codecpar.codec_type == AVMEDIA_TYPE_VIDEO {
             mediaType = .video
             audioStreamBasicDescription = nil
+            channelLayoutDescribe = ""
             if let name = av_get_pix_fmt_name(AVPixelFormat(rawValue: codecpar.format)) {
                 description += ", \(String(cString: name))"
             }
             description += ", \(Int(naturalSize.width))x\(Int(naturalSize.height))"
         } else if codecpar.codec_type == AVMEDIA_TYPE_SUBTITLE {
+            channelLayoutDescribe = ""
             mediaType = .subtitle
             audioStreamBasicDescription = nil
         } else {

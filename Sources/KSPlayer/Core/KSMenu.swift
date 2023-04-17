@@ -71,6 +71,12 @@ public enum KSMenuBuilder {
                 title += " \(track.naturalSize.width)x\(track.naturalSize.height)"
             }
 
+            if track.mediaType == .audio {
+                title += " \(track.channelLayoutDescribe)"
+                title += ",\(track.audioStreamBasicDescription?.mChannelsPerFrame ?? 0)ch"
+                title += ",\(((track.audioStreamBasicDescription?.mSampleRate ?? 0) / 1000).cleanZero)kHz"
+            }
+
             let tracksItem = UIAction(title: title) { item in
                 handler(track)
                 actions.forEach { action in

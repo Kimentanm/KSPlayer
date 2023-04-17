@@ -26,7 +26,7 @@ class PlayerFullScreenViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        KSOptions.supportedInterfaceOrientations = isHorizonal ? .landscapeRight : .portrait
+        KSOptions.supportedInterfaceOrientations = isHorizonal ? .landscape : .portrait
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -40,7 +40,7 @@ class PlayerFullScreenViewController: UIViewController {
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        .all
+        UIDevice.current.userInterfaceIdiom == .pad ? .all : .landscape
     }
 
     override var prefersHomeIndicatorAutoHidden: Bool {
@@ -52,7 +52,7 @@ class PlayerFullScreenViewController: UIViewController {
     }
 
     override var prefersStatusBarHidden: Bool {
-        statusHiden
+        true
     }
 }
 
