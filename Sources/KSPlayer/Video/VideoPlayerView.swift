@@ -707,16 +707,6 @@ extension VideoPlayerView {
                                       execute: delayItem!)
     }
 
-    private func showLoader() {
-        loadingIndector.isHidden = false
-        loadingIndector.startAnimating()
-    }
-
-    private func hideLoader() {
-        loadingIndector.isHidden = true
-        loadingIndector.stopAnimating()
-    }
-
     private func addConstraint() {
         if #available(macOS 11.0, *) {
             #if !targetEnvironment(macCatalyst)
