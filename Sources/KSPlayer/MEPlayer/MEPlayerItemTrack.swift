@@ -22,7 +22,7 @@ protocol PlayerItemTrackProtocol: CapacityProtocol, AnyObject {
 }
 
 class SyncPlayerItemTrack<Frame: MEFrame>: PlayerItemTrackProtocol, CustomStringConvertible {
-    var seekTime = 0.0
+    private var seekTime = 0.0
     fileprivate let options: KSOptions
     fileprivate var decoderMap = [Int32: DecodeProtocol]()
     fileprivate var state = MECodecState.idle {
