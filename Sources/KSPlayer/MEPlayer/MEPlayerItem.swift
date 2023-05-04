@@ -520,13 +520,19 @@ extension MEPlayerItem {
     }
 }
 
-// MARK: MediaPlayback
+extension MEPlayerItem {
+    var metadata: [String: String] {
+        toDictionary(formatCtx?.pointee.metadata)
+    }
 
-extension MEPlayerItem: MediaPlayback {
     var bytesRead: Int64 {
         formatCtx?.pointee.pb.pointee.bytes_read ?? 0
     }
+}
 
+// MARK: MediaPlayback
+
+extension MEPlayerItem: MediaPlayback {
     var seekable: Bool {
         guard let formatCtx else {
             return false
@@ -560,7 +566,6 @@ extension MEPlayerItem: MediaPlayback {
         if let outputFormatCtx {
             av_write_trailer(outputFormatCtx)
         }
-        condition.signal()
         // 故意循环引用。等结束了。才释放
         let closeOperation = BlockOperation {
             Thread.current.name = (self.operationQueue.name ?? "") + "_close"
@@ -582,10 +587,12 @@ extension MEPlayerItem: MediaPlayback {
             closeOperation.addDependency(openOperation)
         }
         operationQueue.addOperation(closeOperation)
+        condition.signal()
+        allPlayerItemTracks.forEach { $0.shutdown() }
         self.closeOperation = closeOperation
     }
 
-    internal func seek(time: TimeInterval, completion: @escaping ((Bool) -> Void)) {
+    func seek(time: TimeInterval, completion: @escaping ((Bool) -> Void)) {
         if state == .reading || state == .paused {
             state = .seeking
             currentPlaybackTime = time
