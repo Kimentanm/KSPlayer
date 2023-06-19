@@ -134,8 +134,13 @@ open class KSPlayerLayer: UIView {
     public private(set) var state = KSPlayerState.prepareToPlay {
         didSet {
             if state != oldValue {
-                KSLog("playerStateDidChange - \(state)")
-                delegate?.player(layer: self, state: state)
+                runInMainqueue { [weak self] in
+                    guard let self else {
+                        return
+                    }
+                    KSLog("playerStateDidChange - \(self.state)")
+                    self.delegate?.player(layer: self, state: self.state)
+                }
             }
         }
     }
@@ -302,11 +307,10 @@ open class KSPlayerLayer: UIView {
     override open func didAddSubview(_ subview: UIView) {
         super.didAddSubview(subview)
         if subview == player.view {
-            subview.frame = frame
             subview.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                subview.leftAnchor.constraint(equalTo: leftAnchor),
-                subview.topAnchor.constraint(equalTo: topAnchor),
+                subview.widthAnchor.constraint(equalTo: widthAnchor),
+                subview.heightAnchor.constraint(equalTo: heightAnchor),
                 subview.centerXAnchor.constraint(equalTo: centerXAnchor),
                 subview.centerYAnchor.constraint(equalTo: centerYAnchor),
             ])

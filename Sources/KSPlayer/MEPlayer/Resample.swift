@@ -12,7 +12,7 @@ import FFmpegKit
 import Libavcodec
 import Libswresample
 import Libswscale
-import VideoToolbox
+
 protocol Swresample {
     func transfer(avframe: UnsafeMutablePointer<AVFrame>) throws -> MEFrame
     func shutdown()
@@ -230,12 +230,12 @@ class AudioSwresample: Swresample {
     }
 }
 
-class AudioDescriptor: Equatable {
+public class AudioDescriptor: Equatable {
     static let defaultValue = AudioDescriptor()
-    fileprivate let sampleRate: Int32
+    public let sampleRate: Int32
     fileprivate let sampleFormat: AVSampleFormat
-    fileprivate var channel: AVChannelLayout
-    var channels: AVAudioChannelCount {
+    public fileprivate(set) var channel: AVChannelLayout
+    public var channels: AVAudioChannelCount {
         AVAudioChannelCount(channel.nb_channels)
     }
 
@@ -267,7 +267,7 @@ class AudioDescriptor: Equatable {
         sampleFormat = AVSampleFormat(rawValue: frame.format)
     }
 
-    static func == (lhs: AudioDescriptor, rhs: AudioDescriptor) -> Bool {
+    public static func == (lhs: AudioDescriptor, rhs: AudioDescriptor) -> Bool {
         lhs.sampleFormat == rhs.sampleFormat && lhs.sampleRate == rhs.sampleRate && lhs.channel == rhs.channel
     }
 

@@ -14,14 +14,14 @@ import UIKit
 import AppKit
 #endif
 class SubtitleDecode: DecodeProtocol {
-    private weak var delegate: DecodeResultDelegate?
     private let reg = AssParse.patternReg()
     private var codecContext: UnsafeMutablePointer<AVCodecContext>?
     private let scale = VideoSwresample(dstFormat: AV_PIX_FMT_ARGB)
     private var subtitle = AVSubtitle()
+    private var startTime = TimeInterval(0)
     private var preSubtitleFrame: SubtitleFrame?
-    required init(assetTrack: FFmpegAssetTrack, options: KSOptions, delegate: DecodeResultDelegate) {
-        self.delegate = delegate
+    required init(assetTrack: FFmpegAssetTrack, options: KSOptions) {
+        startTime = assetTrack.startTime
         do {
             codecContext = try assetTrack.ceateContext(options: options)
         } catch {
@@ -33,9 +33,8 @@ class SubtitleDecode: DecodeProtocol {
         preSubtitleFrame = nil
     }
 
-    func doDecode(packet: Packet) throws {
+    func decodeFrame(from packet: Packet, completionHandler: @escaping (Result<MEFrame, Error>) -> Void) {
         guard let codecContext else {
-            delegate?.decodeResult(frame: nil)
             return
         }
         var gotsubtitle = Int32(0)
@@ -45,7 +44,10 @@ class SubtitleDecode: DecodeProtocol {
         }
         let (origin, attributedString, image) = text(subtitle: subtitle)
         let position = packet.position
-        let start = packet.assetTrack.timebase.cmtime(for: position).seconds + TimeInterval(subtitle.start_display_time) / 1000.0
+        var start = packet.assetTrack.timebase.cmtime(for: position).seconds + TimeInterval(subtitle.start_display_time) / 1000.0
+        if start >= startTime {
+            start -= startTime
+        }
         var duration = TimeInterval(subtitle.end_display_time - subtitle.start_display_time) / 1000.0
         if duration == 0 {
             duration = packet.assetTrack.timebase.cmtime(for: packet.duration).seconds
@@ -65,7 +67,7 @@ class SubtitleDecode: DecodeProtocol {
                 preSubtitleFrame.part.end = frame.part.start
             }
             preSubtitleFrame = frame
-            delegate?.decodeResult(frame: frame)
+            completionHandler(.success(frame))
         }
         avsubtitle_free(&subtitle)
     }

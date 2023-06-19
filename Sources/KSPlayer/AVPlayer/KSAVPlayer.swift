@@ -475,7 +475,7 @@ extension KSAVPlayer: MediaPlayerProtocol {
 
     public func select(track: MediaPlayerTrack) {
         player.currentItem?.tracks.filter { $0.assetTrack?.mediaType == track.mediaType }.forEach { $0.isEnabled = false }
-        track.setIsEnabled(true)
+        track.isEnabled = true
     }
 }
 
@@ -494,13 +494,13 @@ extension AVMediaType {
     }
 }
 
-struct AVMediaPlayerTrack: MediaPlayerTrack {
+class AVMediaPlayerTrack: MediaPlayerTrack {
     let description: String
     private let track: AVPlayerItemTrack
     let nominalFrameRate: Float
     let trackID: Int32
     let mediaSubType: CMFormatDescription.MediaSubType
-    let rotation: Double = 0
+    let rotation: Int16 = 0
     let bitRate: Int64
     let naturalSize: CGSize
     let name: String
@@ -557,10 +557,6 @@ struct AVMediaPlayerTrack: MediaPlayerTrack {
             fullRangeVideo = false
             description = ""
         }
-    }
-
-    func setIsEnabled(_ isEnabled: Bool) {
-        track.isEnabled = isEnabled
     }
 }
 

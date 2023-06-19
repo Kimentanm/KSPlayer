@@ -185,7 +185,6 @@ open class IOSVideoPlayerView: VideoPlayerView {
         }
         toolBar.playbackRateButton.isHidden = false
         toolBar.srtButton.isHidden = srtControl.srtListCount == 0
-        srtControl.view.isHidden = true
         if UIDevice.current.userInterfaceIdiom == .phone {
             if isLandscape {
                 landscapeButton.isHidden = true
@@ -386,7 +385,7 @@ extension IOSVideoPlayerView: UIDocumentPickerDelegate {
             if url.isMovie || url.isAudio {
                 set(url: url, options: KSOptions())
             } else {
-                resource?.subtitle = KSURLSubtitle(url: url)
+                srtControl.selectedSubtitleInfo = URLSubtitleInfo(url: url)
             }
         }
     }
