@@ -47,6 +47,7 @@ final class MEPlayerItem {
     private var videoAdaptation: VideoAdaptationState?
     private(set) var currentPlaybackTime = TimeInterval(0)
     private(set) var startTime = TimeInterval(0)
+    private var videoClockDelay = TimeInterval(0)
     private(set) var duration: TimeInterval = 0
     private(set) var naturalSize = CGSize.zero
     private var error: NSError? {
@@ -734,22 +735,19 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
             desire -= AVAudioSession.sharedInstance().outputLatency
             #endif
             if self.isAudioStalled {
-                desire += max(CACurrentMediaTime() - self.videoMediaTime, 0)
+                desire += max(CACurrentMediaTime() - self.videoMediaTime, 0) + self.videoClockDelay
             }
             return frame.seconds <= desire
         }
         let frame = videoTrack.getOutputRender(where: predicate)
-        if let frame, !isAudioStalled {
-            let type = options.videoClockSync(audioTime: desire, videoTime: frame.seconds)
-            switch type {
-            case .drop:
-                return nil
-            case .seek:
-                videoTrack.outputRenderQueue.flush()
-                videoTrack.seekTime = desire
-                return nil
-            case .show:
-                break
+        if let frame {
+            videoClockDelay = desire - frame.seconds
+            if frame.seconds + 0.4 < desire {
+                let frameCount = videoTrack.frameCount
+                if frameCount > 0 {
+                    KSLog("video delay time: \(desire - frame.seconds) dropped video frame frameCount: \(videoTrack.frameCount) frameMaxCount: \(videoTrack.frameMaxCount)")
+                    _ = videoTrack.getOutputRender(where: nil)
+                }
             }
         }
         return options.videoDisable ? nil : frame
