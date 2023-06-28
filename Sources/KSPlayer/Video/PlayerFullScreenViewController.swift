@@ -40,7 +40,7 @@ class PlayerFullScreenViewController: UIViewController {
     }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        UIDevice.current.userInterfaceIdiom == .pad ? .all : .landscape
+        UIDevice.current.userInterfaceIdiom == .pad ? .all : (isHorizonal ? .landscape : .portrait)
     }
 
     override var prefersHomeIndicatorAutoHidden: Bool {
