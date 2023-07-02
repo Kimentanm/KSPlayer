@@ -50,7 +50,7 @@ public protocol MediaPlayerProtocol: MediaPlayback {
     func pause()
     func enterBackground()
     func enterForeground()
-    func thumbnailImageAtCurrentTime() async -> UIImage?
+    func thumbnailImageAtCurrentTime() async -> CGImage?
     func tracks(mediaType: AVFoundation.AVMediaType) -> [MediaPlayerTrack]
     func select(track: MediaPlayerTrack)
 }
@@ -92,6 +92,10 @@ public protocol MediaPlayerTrack: AnyObject, CustomStringConvertible {
     var fieldOrder: FFmpegFieldOrder { get }
     var channelLayoutDescribe: String { get }
 }
+
+// public extension MediaPlayerTrack: Identifiable {
+//    var id: Int32 { trackID }
+// }
 
 public enum MediaPlaybackState: Int {
     case idle

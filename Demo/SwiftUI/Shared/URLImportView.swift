@@ -13,40 +13,64 @@ struct URLImportView: View {
     @EnvironmentObject private var appModel: APPModel
     @State private var username = ""
     @State private var password = ""
-    @State private var playURL: String = "https://iptv-org.github.io/iptv/index.nsfw.m3u"
+    @State private var playURL: String = ""
+    @State private var rememberURL = false
+    @AppStorage("historyURLs") private var historyURLs = [URL]()
     var body: some View {
-        List {
-            TextField("Please enter the URL here……", text: $playURL)
-            Section("HTTP Authentication") {
-                HStack {
-                    Text("Username")
-                    TextField("", text: $username).border(.gray)
-                }
-                HStack {
-                    Text("Password")
-                    TextField("", text: $password).border(.gray)
-                }
-            }
-            HStack {
-                Spacer()
-                Button("Cancel") {
-                    appModel.openURLImport = false
-                }
-                Button("Done") {
-                    if var components = URLComponents(string: playURL.trimmingCharacters(in: NSMutableCharacterSet.whitespacesAndNewlines)) {
-                        if username.count > 0 {
-                            components.user = username
-                        }
-                        if password.count > 0 {
-                            components.password = password
-                        }
-                        if let url = components.url {
-                            appModel.open(url: url)
+        Form {
+            Section {
+                TextField("URL:", text: $playURL)
+                Toggle("Remember URL", isOn: $rememberURL)
+                if historyURLs.count > 0 {
+                    Picker("History URL", selection: $playURL) {
+                        ForEach(historyURLs) {
+                            Text($0.description).tag($0.description)
                         }
                     }
-                    appModel.openURLImport = false
+                }
+                Picker("IPTV", selection: $playURL) {
+                    ForEach(appModel.m3uModels) {
+                        Text($0.name).tag($0.m3uURL)
+                    }
+                }
+            }
+            Section("HTTP Authentication") {
+                TextField("Username:", text: $username)
+                SecureField("Password:", text: $password)
+            }
+            Section {
+                HStack {
+                    Button("Cancel") {
+                        appModel.openURLImport = false
+                    }
+                    Spacer()
+                    Button("Done") {
+                        if var components = URLComponents(string: playURL.trimmingCharacters(in: NSMutableCharacterSet.whitespacesAndNewlines)) {
+                            if username.count > 0 {
+                                components.user = username
+                            }
+                            if password.count > 0 {
+                                components.password = password
+                            }
+                            if let url = components.url {
+                                if rememberURL {
+                                    if let index = historyURLs.firstIndex(of: url) {
+                                        historyURLs.swapAt(index, historyURLs.startIndex)
+                                    } else {
+                                        historyURLs.insert(url, at: 0)
+                                    }
+                                    if historyURLs.count > 20 {
+                                        historyURLs.removeLast()
+                                    }
+                                }
+                                appModel.open(url: url)
+                            }
+                        }
+                        appModel.openURLImport = false
+                    }
                 }
             }
         }
+        .padding()
     }
 }

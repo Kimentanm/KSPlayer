@@ -151,11 +151,11 @@ extension KSMEPlayer: MEPlayerDelegate {
             $0 as? FFmpegAssetTrack
         }?.audioDescriptor ?? .defaultValue
         options.setAudioSession(audioDescriptor: audioDescriptor)
-        audioOutput.prepare(audioFormat: options.audioFormat)
         let fps = tracks(mediaType: .video).first { $0.isEnabled }.map(\.nominalFrameRate) ?? 24
-        videoOutput?.prepare(fps: fps)
         runInMainqueue { [weak self] in
             guard let self else { return }
+            self.audioOutput.prepare(audioFormat: self.options.audioFormat)
+            self.videoOutput?.prepare(fps: fps, startPlayTime: self.options.startPlayTime)
             self.videoOutput?.play()
             self.delegate?.readyToPlay(player: self)
         }
@@ -244,7 +244,7 @@ extension KSMEPlayer: MediaPlayerProtocol {
     public var isPlaying: Bool { playbackState == .playing }
 
     public var naturalSize: CGSize {
-        options.display == .plane ? playerItem.naturalSize : UIScreen.size
+        options.display == .plane ? playerItem.naturalSize : KSOptions.sceneSize
     }
 
     public var isExternalPlaybackActive: Bool { false }
@@ -292,7 +292,15 @@ extension KSMEPlayer: MediaPlayerProtocol {
             seekTime = time
         }
         audioOutput.flush()
-        playerItem.seek(time: seekTime + playerItem.startTime, completion: completion)
+        playerItem.seek(time: seekTime + playerItem.startTime) { [weak self] result in
+            guard let self else { return }
+            if result {
+                if let controlTimebase = self.videoOutput?.displayView.displayLayer.controlTimebase {
+                    CMTimebaseSetTime(controlTimebase, time: CMTimeMake(value: Int64(self.currentPlaybackTime), timescale: 1))
+                }
+            }
+            completion(result)
+        }
     }
 
     public func prepareToPlay() {
@@ -341,8 +349,8 @@ extension KSMEPlayer: MediaPlayerProtocol {
         }
     }
 
-    public func thumbnailImageAtCurrentTime() async -> UIImage? {
-        await videoOutput?.pixelBuffer?.cgImage()?.image()
+    public func thumbnailImageAtCurrentTime() async -> CGImage? {
+        await videoOutput?.pixelBuffer?.cgImage()
     }
 
     public func enterBackground() {}
@@ -396,7 +404,7 @@ extension KSMEPlayer: AVPictureInPictureSampleBufferPlaybackDelegate {
     }
 
     public func pictureInPictureControllerTimeRangeForPlayback(_: AVPictureInPictureController) -> CMTimeRange {
-        CMTimeRange(start: currentPlaybackTime, end: playableTime)
+        CMTimeRange(start: playerItem.startTime, end: duration)
     }
 
     public func pictureInPictureControllerIsPlaybackPaused(_: AVPictureInPictureController) -> Bool {

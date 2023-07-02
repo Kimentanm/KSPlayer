@@ -8,20 +8,27 @@
 import AVFoundation
 import CoreMedia
 import CoreServices
+import SwiftUI
+
 #if canImport(UIKit)
 import UIKit
-public extension UIScreen {
-    static var size: CGSize {
-        main.bounds.size
+public extension KSOptions {
+    static var windowScene: UIWindowScene? {
+        UIApplication.shared.connectedScenes.first as? UIWindowScene
+    }
+
+    static var sceneSize: CGSize {
+        let window = windowScene?.windows.first
+        return window?.bounds.size ?? .zero
     }
 }
 #else
 import AppKit
+import SwiftUI
 public typealias UIView = NSView
-public typealias UIScreen = NSScreen
-public extension NSScreen {
-    static var size: CGSize {
-        main?.frame.size ?? .zero
+public extension KSOptions {
+    static var sceneSize: CGSize {
+        NSScreen.main?.frame.size ?? .zero
     }
 }
 #endif
@@ -189,53 +196,6 @@ public struct LoadingState {
     public let isSeek: Bool
 }
 
-public enum LogLevel: Int32, CustomStringConvertible {
-    case panic = 0
-    case fatal = 8
-    case error = 16
-    case warning = 24
-    case info = 32
-    case verbose = 40
-    case debug = 48
-    case trace = 56
-
-    public var description: String {
-        switch self {
-        case .panic:
-            return "panic"
-        case .fatal:
-            return "fault"
-        case .error:
-            return "error"
-        case .warning:
-            return "warning"
-        case .info:
-            return "info"
-        case .verbose:
-            return "verbose"
-        case .debug:
-            return "debug"
-        case .trace:
-            return "trace"
-        }
-    }
-}
-
-@inline(__always) public func KSLog(_ message: CustomStringConvertible, logLevel: LogLevel = .warning, file: String = #file, function: String = #function, line: Int = #line) {
-    if logLevel.rawValue <= KSOptions.logLevel.rawValue {
-        let fileName = (file as NSString).lastPathComponent
-        print("logLevel: \(logLevel) KSPlayer: \(fileName):\(line) \(function) | \(message)")
-    }
-}
-
-//
-// @available(macOS 11.0, iOS 14.0, watchOS 7.0, tvOS 14.0, *)
-// @inline(__always) public func KSLog(level: LogLevel = .warning, _ message: OSLogMessage) {
-//    if level.rawValue <= KSOptions.logLevel.rawValue {
-//        KSOptions.logger.log(level: level.logType, message)
-//    }
-// }
-
 public let KSPlayerErrorDomain = "KSPlayerErrorDomain"
 
 public enum KSPlayerErrorCode: Int {
@@ -393,39 +353,62 @@ public extension URL {
         ["cue", "m3u", "pls"].contains(pathExtension.lowercased())
     }
 
-    func parsePlaylist(completion: @escaping (([(String, URL, [String: String])]) -> Void)) {
-        URLSession.shared.dataTask(with: self) { data, _, _ in
-            guard let data, let string = String(data: data, encoding: .utf8) else {
+    func parsePlaylist() async throws -> [(String, URL, [String: String])] {
+        guard let data = try? await data(), let string = String(data: data, encoding: .utf8) else {
+            return []
+        }
+        return string.components(separatedBy: "#EXTINF:").compactMap { content -> (String, URL, [String: String])? in
+            let content = content.replacingOccurrences(of: "\r\n", with: "\n")
+            let array = content.split(separator: "\n")
+            guard array.count > 1, let url = URL(string: String(array[1])) else {
+                return nil
+            }
+            let infos = array[0].split(separator: ",")
+            guard infos.count > 1, let name = infos.last else {
+                return nil
+            }
+            var extinf = [String: String]()
+            let tvgString: Substring
+            if infos.count > 2 {
+                extinf["duration"] = String(infos[0])
+                tvgString = infos[1]
+            } else {
+                tvgString = infos[0]
+            }
+            tvgString.split(separator: " ").forEach { str in
+                let keyValue = str.split(separator: "=")
+                if keyValue.count == 2 {
+                    extinf[String(keyValue[0])] = keyValue[1].trimmingCharacters(in: CharacterSet(charactersIn: #"""#))
+                } else {
+                    extinf["duration"] = String(keyValue[0])
+                }
+            }
+            return (String(name), url, extinf)
+        }
+    }
+
+    func data() async throws -> Data {
+        if isFileURL {
+            return try Data(contentsOf: self)
+        } else {
+            let (data, _) = try await URLSession.shared.data(from: self)
+            return data
+        }
+    }
+
+    func download(completion: @escaping ((String, URL) -> Void)) {
+        URLSession.shared.downloadTask(with: self) { url, response, _ in
+            guard let url, let response = response as? HTTPURLResponse else {
                 return
             }
-            let result = string.components(separatedBy: "#EXTINF:").compactMap { content -> (String, URL, [String: String])? in
-                let array = content.split(separator: "\n")
-                guard array.count > 1, let url = URL(string: String(array[1])) else {
-                    return nil
-                }
-                let infos = array[0].split(separator: ",")
-                guard infos.count > 1, let name = infos.last else {
-                    return nil
-                }
-                var extinf = [String: String]()
-                let tvgString: Substring
-                if infos.count > 2 {
-                    extinf["duration"] = String(infos[0])
-                    tvgString = infos[1]
-                } else {
-                    tvgString = infos[0]
-                }
-                tvgString.split(separator: " ").forEach { str in
-                    let keyValue = str.split(separator: "=")
-                    if keyValue.count == 2 {
-                        extinf[String(keyValue[0])] = keyValue[1].trimmingCharacters(in: CharacterSet(charactersIn: #"""#))
-                    } else {
-                        extinf["duration"] = String(keyValue[0])
-                    }
-                }
-                return (String(name), url, extinf)
+            let httpFileName = "attachment; filename="
+            var filename = url.lastPathComponent
+            if var disposition = response.value(forHTTPHeaderField: "Content-Disposition"), disposition.hasPrefix(httpFileName) {
+                disposition.removeFirst(httpFileName.count)
+                filename = disposition
             }
-            completion(result)
+            // 下载的临时文件要马上就用。不然可能会马上被清空
+            completion(filename, url)
         }.resume()
     }
 }
@@ -485,4 +468,210 @@ public extension Int {
             }
         }
     }
+}
+
+extension TextAlignment: RawRepresentable {
+    public typealias RawValue = String
+    public init?(rawValue: RawValue) {
+        if rawValue == "Leading" {
+            self = .leading
+        } else if rawValue == "Center" {
+            self = .center
+        } else if rawValue == "Trailing" {
+            self = .trailing
+        } else {
+            return nil
+        }
+    }
+
+    public var rawValue: RawValue {
+        switch self {
+        case .leading:
+            return "Leading"
+        case .center:
+            return "Center"
+        case .trailing:
+            return "Trailing"
+        }
+    }
+}
+
+extension TextAlignment: Identifiable {
+    public var id: Self { self }
+}
+
+extension VerticalAlignment: Hashable, RawRepresentable {
+    public typealias RawValue = String
+    public init?(rawValue: RawValue) {
+        if rawValue == "Top" {
+            self = .top
+        } else if rawValue == "Center" {
+            self = .center
+        } else if rawValue == "Bottom" {
+            self = .bottom
+        } else {
+            return nil
+        }
+    }
+
+    public var rawValue: RawValue {
+        switch self {
+        case .top:
+            return "Top"
+        case .center:
+            return "Center"
+        case .bottom:
+            return "Bottom"
+        default:
+            return ""
+        }
+    }
+}
+
+extension VerticalAlignment: Identifiable {
+    public var id: Self { self }
+}
+
+extension Color: RawRepresentable {
+    public typealias RawValue = String
+    public init?(rawValue: RawValue) {
+        guard let data = Data(base64Encoded: rawValue) else {
+            self = .black
+            return
+        }
+
+        do {
+            let color = try NSKeyedUnarchiver.unarchiveTopLevelObjectWithData(data) as? UIColor ?? .black
+            self = Color(color)
+        } catch {
+            self = .black
+        }
+    }
+
+    public var rawValue: RawValue {
+        do {
+            if #available(macOS 11.0, iOS 14, tvOS 14, *) {
+                let data = try NSKeyedArchiver.archivedData(withRootObject: UIColor(self), requiringSecureCoding: false) as Data
+                return data.base64EncodedString()
+            } else {
+                return ""
+            }
+        } catch {
+            return ""
+        }
+    }
+}
+
+extension Array: RawRepresentable where Element: Codable {
+    public init?(rawValue: String) {
+        guard let data = rawValue.data(using: .utf8),
+              let result = try? JSONDecoder().decode([Element].self, from: data)
+        else { return nil }
+        self = result
+    }
+
+    public var rawValue: String {
+        guard let data = try? JSONEncoder().encode(self),
+              let result = String(data: data, encoding: .utf8)
+        else {
+            return "[]"
+        }
+        return result
+    }
+}
+
+extension Date: RawRepresentable {
+    public typealias RawValue = String
+    public init?(rawValue: RawValue) {
+        guard let data = rawValue.data(using: .utf8),
+              let date = try? JSONDecoder().decode(Date.self, from: data)
+        else {
+            return nil
+        }
+        self = date
+    }
+
+    public var rawValue: RawValue {
+        guard let data = try? JSONEncoder().encode(self),
+              let result = String(data: data, encoding: .utf8)
+        else {
+            return ""
+        }
+        return result
+    }
+}
+
+extension CGImage {
+    static func combine(images: [(CGRect, CGImage)]) -> CGImage? {
+        if images.isEmpty {
+            return nil
+        }
+        if images.count == 1 {
+            return images[0].1
+        }
+        var width = 0
+        var height = 0
+        for (rect, _) in images {
+            width = max(width, Int(rect.maxX))
+            height = max(height, Int(rect.maxY))
+        }
+        let bitsPerComponent = 8
+        // RGBA(的bytes) * bitsPerComponent *width
+        let bytesPerRow = 4 * 8 * bitsPerComponent * width
+        return autoreleasepool {
+            let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: bitsPerComponent, bytesPerRow: bytesPerRow, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+            guard let context else {
+                return nil
+            }
+//            context.clear(CGRect(origin: .zero, size: CGSize(width: width, height: height)))
+            for (rect, cgImage) in images {
+                context.draw(cgImage, in: CGRect(x: rect.origin.x, y: CGFloat(height) - rect.maxY, width: rect.width, height: rect.height))
+            }
+            let cgImage = context.makeImage()
+            return cgImage
+        }
+    }
+
+    func data(type: AVFileType, quality: CGFloat) -> Data? {
+        autoreleasepool {
+            guard let mutableData = CFDataCreateMutable(nil, 0),
+                  let destination = CGImageDestinationCreateWithData(mutableData, type.rawValue as CFString, 1, nil)
+            else {
+                return nil
+            }
+            CGImageDestinationAddImage(destination, self, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+            guard CGImageDestinationFinalize(destination) else {
+                return nil
+            }
+            return mutableData as Data
+        }
+    }
+
+    static func make(rgbData: UnsafePointer<UInt8>, linesize: Int, width: Int, height: Int, isAlpha: Bool = false) -> CGImage? {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        let bitmapInfo: CGBitmapInfo = isAlpha ? CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue) : CGBitmapInfo.byteOrderMask
+        guard let data = CFDataCreate(kCFAllocatorDefault, rgbData, linesize * height), let provider = CGDataProvider(data: data) else {
+            return nil
+        }
+        // swiftlint:disable line_length
+        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: isAlpha ? 32 : 24, bytesPerRow: linesize, space: colorSpace, bitmapInfo: bitmapInfo, provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+        // swiftlint:enable line_length
+    }
+}
+
+public extension AVFileType {
+    static let png = AVFileType(kUTTypePNG as String)
+    static let jpeg2000 = AVFileType(kUTTypeJPEG2000 as String)
+}
+
+extension URL: Identifiable {
+    public var id: Self { self }
+}
+
+extension String: Identifiable {
+    public var id: Self { self }
+}
+
+extension Float: Identifiable {
+    public var id: Self { self }
 }

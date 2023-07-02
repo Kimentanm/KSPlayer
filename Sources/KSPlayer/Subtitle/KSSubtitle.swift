@@ -11,7 +11,7 @@ import CoreGraphics
 import Foundation
 import SwiftUI
 
-public class SubtitlePart: CustomStringConvertible, NSMutableCopying, ObservableObject {
+public class SubtitlePart: CustomStringConvertible, NSMutableCopying {
     public let start: TimeInterval
     public var end: TimeInterval
     public var origin: CGPoint = .zero
@@ -122,22 +122,23 @@ extension KSSubtitle: KSSubtitleProtocol {
         var index = currentIndex
         if searchIndex(for: time) != nil {
             if currentIndex == index {
-                // swiftlint:disable force_cast
-                let copy = parts[currentIndex].mutableCopy() as! SubtitlePart
-                // swiftlint:enable force_cast
-                let text = copy.text
                 index = currentIndex + 1
-                while index < parts.count, parts[index] == time {
-                    if let otherText = parts[index].text {
-                        text?.append(NSAttributedString(string: "\n"))
-                        text?.append(otherText)
-                    }
-                    index += 1
+                if index < parts.count, parts[index] == time {
+                    // swiftlint:disable force_cast
+                    let copy = parts[currentIndex].mutableCopy() as! SubtitlePart
+                    // swiftlint:enable force_cast
+                    repeat {
+                        if let otherText = parts[index].text {
+                            copy.text?.append(NSAttributedString(string: "\n"))
+                            copy.text?.append(otherText)
+                        }
+                        copy.end = parts[index].end
+                        index += 1
+                    } while index < parts.count && parts[index] == time
+                    return copy
                 }
-                return copy
-            } else {
-                return parts[currentIndex]
             }
+            return parts[currentIndex]
         } else {
             return nil
         }
@@ -194,15 +195,11 @@ extension KSSubtitle: KSSubtitleProtocol {
     }
 }
 
-class KSURLSubtitle: KSSubtitle {
-    private var url: URL?
-    public var parses: [KSParseProtocol] = [SrtParse(), AssParse(), VTTParse()]
-
-    public func parse(url: URL, encoding: String.Encoding? = nil) throws {
-        self.url = url
+public class KSURLSubtitle: KSSubtitle {
+    public func parse(url: URL, encoding: String.Encoding? = nil) async throws {
         do {
             var string: String?
-            let srtData = try Data(contentsOf: url)
+            let srtData = try await url.data()
             let encodes = [encoding ?? String.Encoding.utf8,
                            String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.big5.rawValue))),
                            String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue))),
@@ -216,7 +213,7 @@ class KSURLSubtitle: KSSubtitle {
             guard let subtitle = string else {
                 throw NSError(errorCode: .subtitleUnEncoding, userInfo: ["url": url.absoluteString])
             }
-            let parse = parses.first { $0.canParse(subtitle: subtitle) }
+            let parse = KSOptions.subtitleParses.first { $0.canParse(subtitle: subtitle) }
             if let parse {
                 parts = parse.parse(subtitle: subtitle)
                 if partsCount == 0 {
@@ -230,9 +227,9 @@ class KSURLSubtitle: KSSubtitle {
         }
     }
 
-    public static func == (lhs: KSURLSubtitle, rhs: KSURLSubtitle) -> Bool {
-        lhs.url == rhs.url
-    }
+//    public static func == (lhs: KSURLSubtitle, rhs: KSURLSubtitle) -> Bool {
+//        lhs.url == rhs.url
+//    }
 }
 
 public protocol NumericComparable {
@@ -264,45 +261,67 @@ open class SubtitleModel: ObservableObject {
         case smaller
         case standard
         case large
-
-        public var font: UIFont {
+        public var rawValue: CGFloat {
             switch self {
             case .smaller:
                 #if os(tvOS)
-                return .systemFont(ofSize: 30)
+                return 30
                 #elseif os(macOS)
-                return .systemFont(ofSize: 20)
+                return 20
                 #else
-                return .systemFont(ofSize: 12)
+                return 12
                 #endif
             case .standard:
                 #if os(tvOS)
-                return .systemFont(ofSize: 36)
+                return 36
                 #elseif os(macOS)
-                return .systemFont(ofSize: 26)
+                return 26
                 #else
-                return .systemFont(ofSize: 16)
+                return 16
                 #endif
             case .large:
                 #if os(tvOS)
-                return .systemFont(ofSize: 42)
+                return 42
                 #elseif os(macOS)
-                return .systemFont(ofSize: 32)
+                return 32
                 #else
-                return .systemFont(ofSize: 20)
+                return 20
                 #endif
             }
         }
     }
 
+    public static var textColor: Color = .white
+    public static var textBackgroundColor: Color = .clear
+    public static var textFont: UIFont {
+        textBold ? .boldSystemFont(ofSize: textFontSize) : .systemFont(ofSize: textFontSize)
+    }
+
+    public static var textFontSize = SubtitleModel.Size.standard.rawValue
+    public static var textBold = false
+    public static var textItalic = false
+    public static var textXAlign: TextAlignment = .center
+    public static var textYAlign: VerticalAlignment = .bottom
+    public static var textXMargin: Int = 0
+    public static var textYMargin: Int = 10
+    public static var edgeInsets: EdgeInsets {
+        var edgeInsets = EdgeInsets()
+        if SubtitleModel.textYAlign == .bottom {
+            edgeInsets.bottom = CGFloat(SubtitleModel.textYMargin)
+        } else if SubtitleModel.textYAlign == .top {
+            edgeInsets.top = CGFloat(SubtitleModel.textYMargin)
+        }
+        if SubtitleModel.textXAlign == .leading {
+            edgeInsets.leading = CGFloat(SubtitleModel.textXMargin)
+        } else if SubtitleModel.textXAlign == .trailing {
+            edgeInsets.trailing = CGFloat(SubtitleModel.textXMargin)
+        }
+        return edgeInsets
+    }
+
     private var subtitleDataSouces: [SubtitleDataSouce] = KSOptions.subtitleDataSouces
     public private(set) var subtitleInfos = [any SubtitleInfo]()
-    @Published public var srtListCount: Int = 0
     @Published public private(set) var part: SubtitlePart?
-    @Published public var textFont: UIFont = SubtitleModel.Size.standard.font
-    @Published public var textColor: UIColor = .white
-    @Published public var textPositionFromBottom = 0
-    @Published public var textBackgroundColor: UIColor = .clear
     @Published public var delay = "0.0"
     public var url: URL? {
         didSet {
@@ -328,33 +347,41 @@ open class SubtitleModel: ObservableObject {
     private func addSubtitle(info: any SubtitleInfo) {
         if subtitleInfos.first(where: { $0.subtitleID == info.subtitleID }) == nil {
             subtitleInfos.append(info)
-            srtListCount = subtitleInfos.count
         }
     }
 
-    @discardableResult
-    public func subtitle(currentTime: TimeInterval) -> SubtitlePart? {
+    public func subtitle(currentTime: TimeInterval) -> Bool {
+        let newPart: SubtitlePart?
         if let subtile = selectedSubtitleInfo {
             let currentTime = currentTime - subtile.delay
             if let part = subtile.search(for: currentTime) {
-                self.part = part
+                newPart = part
             } else {
                 if let part, part.end > part.start, !(part == currentTime) {
-                    self.part = nil
+                    newPart = nil
+                } else {
+                    newPart = part
                 }
             }
         } else {
-            part = nil
+            newPart = nil
         }
-        return part
+        // swiftUI不会判断是否相等。所以需要这边判断下。
+        if newPart != part {
+            part = newPart
+            return true
+        } else {
+            return false
+        }
     }
 
     public func addSubtitle(dataSouce: SubtitleDataSouce) {
         if let dataSouce = dataSouce as? SearchSubtitleDataSouce {
             if let url {
-                dataSouce.searchSubtitle(url: url) { [weak self] in
+                Task {
+                    try? await dataSouce.searchSubtitle(url: url)
                     dataSouce.infos.forEach { info in
-                        self?.addSubtitle(info: info)
+                        addSubtitle(info: info)
                     }
                 }
             }

@@ -56,7 +56,7 @@ open class VideoPlayerView: PlayerView {
 
     public private(set) var resource: KSPlayerResource? {
         didSet {
-            if let resource, oldValue !== resource {
+            if let resource, oldValue != resource {
                 if let subtitleDataSouce = resource.subtitleDataSouce {
                     srtControl.addSubtitle(dataSouce: subtitleDataSouce)
                 }
@@ -128,7 +128,6 @@ open class VideoPlayerView: PlayerView {
         super.init(frame: frame)
         setupUIComponents()
         cancellable = playerLayer?.$isPipActive.assign(to: \.isSelected, on: toolBar.pipButton)
-
         toolBar.onFocusUpdate = { [weak self] _ in
             self?.autoFadeOutViewWithAnimation()
         }
@@ -248,14 +247,16 @@ open class VideoPlayerView: PlayerView {
         guard !isSliderSliding else { return }
         super.player(layer: layer, currentTime: currentTime, totalTime: totalTime)
         let time = currentTime + (resource?.definitions[currentDefinition].options.subtitleDelay ?? 0.0)
-        if let part = srtControl.subtitle(currentTime: time) {
-            subtitleBackView.image = part.image
-            subtitleLabel.attributedText = part.text
-            subtitleBackView.isHidden = false
-        } else {
-            subtitleBackView.image = nil
-            subtitleLabel.attributedText = nil
-            subtitleBackView.isHidden = true
+        if srtControl.subtitle(currentTime: time) {
+            if let part = srtControl.part {
+                subtitleBackView.image = part.image
+                subtitleLabel.attributedText = part.text
+                subtitleBackView.isHidden = false
+            } else {
+                subtitleBackView.image = nil
+                subtitleLabel.attributedText = nil
+                subtitleBackView.isHidden = true
+            }
         }
     }
 
@@ -266,7 +267,7 @@ open class VideoPlayerView: PlayerView {
             toolBar.timeSlider.isPlayable = true
             toolBar.videoSwitchButton.isHidden = layer.player.tracks(mediaType: .video).count < 2
             toolBar.audioSwitchButton.isHidden = layer.player.tracks(mediaType: .audio).count < 2
-            toolBar.srtButton.isHidden = srtControl.srtListCount == 0
+            toolBar.srtButton.isHidden = srtControl.subtitleInfos.count == 0
             if #available(iOS 14.0, tvOS 15.0, *) {
                 buildMenusForButtons()
             }
@@ -610,9 +611,11 @@ extension VideoPlayerView {
 
     /// change during playback
     public func updateSrt() {
-        subtitleLabel.textColor = srtControl.textColor
-        subtitleLabel.font = srtControl.textFont
-        subtitleBackView.backgroundColor = srtControl.textBackgroundColor
+        subtitleLabel.font = SubtitleModel.textFont
+        if #available(macOS 11.0, iOS 14, tvOS 14, *) {
+            subtitleLabel.textColor = UIColor(SubtitleModel.textColor)
+            subtitleBackView.backgroundColor = UIColor(SubtitleModel.textBackgroundColor)
+        }
     }
 
     private func setupSrtControl() {

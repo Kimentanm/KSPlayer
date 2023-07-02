@@ -14,7 +14,7 @@ import UIKit
 import AppKit
 #endif
 class SubtitleDecode: DecodeProtocol {
-    private let reg = AssParse.patternReg()
+    private let reg = try? NSRegularExpression(pattern: "\\{[^}]+\\}", options: .caseInsensitive)
     private var codecContext: UnsafeMutablePointer<AVCodecContext>?
     private let scale = VideoSwresample(dstFormat: AV_PIX_FMT_ARGB)
     private var subtitle = AVSubtitle()
@@ -118,6 +118,11 @@ class SubtitleDecode: DecodeProtocol {
         if images.count > 1 {
             origin = .zero
         }
-        return (origin, attributedString, CGImage.combine(images: images)?.image(quality: 0.2))
+        var image: UIImage?
+        // 因为字幕需要有透明度,所以不能用jpg；tif在iOS支持没有那么好，会有绿色背景； 用heic格式，展示的时候会卡主线程；所以最终用png。
+        if let data = CGImage.combine(images: images)?.data(type: .png, quality: 0.2) {
+            image = UIImage(data: data)
+        }
+        return (origin, attributedString, image)
     }
 }
