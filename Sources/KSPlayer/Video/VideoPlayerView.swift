@@ -164,6 +164,8 @@ open class VideoPlayerView: PlayerView {
 
     open func setupUIComponents() {
         backgroundColor = .black
+        // 防止字幕盖住按钮
+        setupSrtControl()
         addSubview(contentOverlayView)
         addSubview(controllerView)
         #if os(macOS)
@@ -212,7 +214,6 @@ open class VideoPlayerView: PlayerView {
         controllerView.addSubview(bottomMaskView)
         addConstraint()
         customizeUIComponents()
-        setupSrtControl()
         layoutIfNeeded()
     }
 
@@ -769,8 +770,8 @@ extension VideoPlayerView {
 
         toolBar.setCustomSpacing(20, after: toolBar.timeLabel)
         toolBar.setCustomSpacing(20, after: toolBar.playbackRateButton)
-        toolBar.setCustomSpacing(20, after: toolBar.definitionButton)
-        toolBar.setCustomSpacing(20, after: toolBar.srtButton)
+//        toolBar.setCustomSpacing(20, after: toolBar.definitionButton)
+//        toolBar.setCustomSpacing(20, after: toolBar.srtButton)
 
         NSLayoutConstraint.activate([
             toolBar.bottomAnchor.constraint(equalTo: bottomMaskView.safeBottomAnchor),
