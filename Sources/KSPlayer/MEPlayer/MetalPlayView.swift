@@ -46,10 +46,10 @@ public final class MetalPlayView: UIView {
         metalLayer.wantsExtendedDynamicRangeContent = true
 //        displayLink = CADisplayLink(block: renderFrame)
         displayLink = CADisplayLink(target: self, selector: #selector(renderFrame))
-        displayLink.add(to: .current, forMode: .default)
+        displayLink.add(to: .main, forMode: .common)
         #else
         displayLink = CADisplayLink(target: self, selector: #selector(renderFrame))
-        displayLink.add(to: .current, forMode: .default)
+        displayLink.add(to: .main, forMode: .common)
         #endif
         pause()
     }
@@ -249,6 +249,11 @@ class AVSampleBufferDisplayView: UIView {
                 displayLayer.enqueue(sampleBuffer)
             } else {
                 KSLog("not readyForMoreMediaData")
+            }
+            if #available(macOS 11.0, iOS 14, tvOS 14, *) {
+                if displayLayer.requiresFlushToResumeDecoding {
+                    displayLayer.flush()
+                }
             }
             if displayLayer.status == .failed {
                 displayLayer.flush()
