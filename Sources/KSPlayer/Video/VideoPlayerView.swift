@@ -444,7 +444,7 @@ extension VideoPlayerView {
         }
         let audioTracks = playerLayer?.player.tracks(mediaType: .audio) ?? []
         toolBar.audioSwitchButton.setMenu(title: NSLocalizedString("switch audio", comment: ""), current: audioTracks.first(where: { $0.isEnabled }), list: audioTracks) { value in
-            value.name
+            "\(value.channelLayoutDescribe),\(value.audioStreamBasicDescription?.mChannelsPerFrame ?? 0)ch,\(((value.audioStreamBasicDescription?.mSampleRate ?? 0) / 1000).cleanZero)kHz"
         } completition: { [weak self] value in
             guard let self else { return }
             if let value {
