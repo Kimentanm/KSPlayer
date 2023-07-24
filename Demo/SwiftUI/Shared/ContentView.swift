@@ -8,24 +8,28 @@ struct ContentView: View {
     private var initialView: some View {
         #if os(macOS)
         NavigationView {
-            List {
+            List(selection: $appModel.tabSelected) {
                 NavigationLink {
                     HomeView()
                 } label: {
                     Label("Home", systemImage: "house.fill")
                 }
+                .tag(TabBarItem.Home)
                 NavigationLink {
                     FavoriteView()
                 } label: {
                     Label("Favorite", systemImage: "star.fill")
                 }
+                .tag(TabBarItem.Favorite)
                 NavigationLink {
                     FilesView()
                 } label: {
                     Label("Files", systemImage: "folder.fill.badge.gearshape")
                 }
+                .tag(TabBarItem.Files)
             }
-        }.toolbar {
+        }
+        .toolbar {
             ToolbarItem(placement: .navigation) {
                 Button {
                     NSApp.keyWindow?.firstResponder?.tryToPerform(#selector(NSSplitViewController.toggleSidebar(_:)), with: nil)
@@ -35,43 +39,37 @@ struct ContentView: View {
             }
         }
         #else
-        TabView {
+        TabView(selection: $appModel.tabSelected) {
             NavigationStack(path: $appModel.path) {
                 HomeView()
-                    .navigationDestination(for: URL.self) { url in
-                        KSVideoPlayerView(url: url)
-                        #if !os(macOS)
-                            .toolbar(.hidden, for: .tabBar)
-                        #endif
-                    }
-                    .navigationDestination(for: PlayModel.self) { model in
-                        KSVideoPlayerView(model: model)
-                        #if !os(macOS)
-                            .toolbar(.hidden, for: .tabBar)
-                        #endif
-                    }
+                    .navigationPlay()
             }
-
             .tabItem {
                 Label("Home", systemImage: "house.fill")
             }
-            NavigationStack(path: $appModel.path) {
+            .tag(TabBarItem.Home)
+            NavigationStack {
                 FavoriteView()
+                    .navigationPlay()
             }
             .tabItem {
                 Label("Favorite", systemImage: "star.fill")
             }
+            .tag(TabBarItem.Favorite)
             NavigationStack {
                 FilesView()
             }
             .tabItem {
                 Label("Files", systemImage: "folder.fill.badge.gearshape")
             }
+            .tag(TabBarItem.Files)
             SettingView()
                 .tabItem {
                     Label("Setting", systemImage: "gear")
                 }
+                .tag(TabBarItem.Setting)
         }
+
         #endif
     }
 
@@ -79,6 +77,7 @@ struct ContentView: View {
         initialView
             .background(Color.black)
             .preferredColorScheme(.dark)
+            .accentColor(.white)
             .sheet(isPresented: $appModel.openURLImport) {
                 URLImportView()
             }
@@ -124,5 +123,30 @@ struct ContentView: View {
                 KSLog("onOpenURL")
                 appModel.open(url: url)
             }
+    }
+}
+
+enum TabBarItem: Int {
+    case Home
+    case Favorite
+    case Files
+    case Setting
+}
+
+public extension View {
+    @ViewBuilder
+    func navigationPlay() -> some View {
+        navigationDestination(for: URL.self) { url in
+            KSVideoPlayerView(url: url)
+            #if !os(macOS)
+                .toolbar(.hidden, for: .tabBar)
+            #endif
+        }
+        .navigationDestination(for: PlayModel.self) { model in
+            KSVideoPlayerView(model: model)
+            #if !os(macOS)
+                .toolbar(.hidden, for: .tabBar)
+            #endif
+        }
     }
 }

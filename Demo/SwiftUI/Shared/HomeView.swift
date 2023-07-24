@@ -62,7 +62,6 @@ struct HomeView: View {
             }
         }
         .padding()
-        .searchable(text: $nameFilter)
         .toolbar {
             Button {
                 appModel.openFileImport = true
@@ -74,13 +73,20 @@ struct HomeView: View {
             } label: {
                 Text("Open URL")
             }
+
             Picker("group filter", selection: $groupFilter) {
                 Text("All ").tag("")
                 ForEach(appModel.groups) { group in
                     Text(group).tag(group)
                 }
             }
+            #if os(tvOS)
+//                    .pickerStyle(.menu)
+            #endif
         }
+        #if !os(tvOS)
+        .searchable(text: $nameFilter)
+        #endif
     }
 }
 
@@ -88,13 +94,13 @@ struct MoiveView: View {
     #if os(iOS)
     static let width = min(KSOptions.sceneSize.width, KSOptions.sceneSize.height) / 2 - 20
     #elseif os(tvOS)
-    static let width = KSOptions.sceneSize.width / 4 - 30
+    static let width = KSOptions.sceneSize.width / 4 - 150
     #else
     static let width = CGFloat(192)
     #endif
     @ObservedObject var model: PlayModel
     var body: some View {
-        VStack(alignment: .leading) {
+        VStack {
             image
             Text(model.name!).lineLimit(1)
         }
@@ -102,11 +108,7 @@ struct MoiveView: View {
         .contextMenu {
             Button {
                 model.isFavorite.toggle()
-                do {
-                    try model.managedObjectContext?.save()
-                } catch {
-                    print(error)
-                }
+                try? model.managedObjectContext?.save()
             } label: {
                 Label(model.isFavorite ? "Cancel favorite" : "Favorite", systemImage: model.isFavorite ? "star" : "star.fill")
             }

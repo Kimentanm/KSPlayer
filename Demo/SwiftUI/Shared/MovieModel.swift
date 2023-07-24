@@ -10,6 +10,7 @@ import Foundation
 import KSPlayer
 
 class MEOptions: KSOptions {
+    static var isUseDisplayLayer = true
     override func process(assetTrack: MediaPlayerTrack) {
         if assetTrack.mediaType == .video {
             if [FFmpegFieldOrder.bb, .bt, .tt, .tb].contains(assetTrack.fieldOrder) {
@@ -17,6 +18,10 @@ class MEOptions: KSOptions {
                 hardwareDecode = false
             }
         }
+    }
+
+    override func isUseDisplayLayer() -> Bool {
+        MEOptions.isUseDisplayLayer && display == .plane
     }
 
     #if os(tvOS)
@@ -81,21 +86,38 @@ extension M3UModel {
         try? context.save()
     }
 
-    func parsePlaylist() async -> [PlayModel] {
+    @MainActor
+    func parsePlaylist(refresh: Bool = false) async -> [PlayModel] {
+        let viewContext = managedObjectContext ?? PersistenceController.shared.container.viewContext
         let request = NSFetchRequest<PlayModel>(entityName: "PlayModel")
         request.predicate = NSPredicate(format: "m3uURL == %@", m3uURL!.description)
-        let dic = try? PersistenceController.shared.container.viewContext.fetch(request).toDictionary { $0.url }
+        let array: [PlayModel] = (try? viewContext.fetch(request)) ?? []
+        guard refresh || array.count == 0 else {
+            return array
+        }
+        let dic = array.toDictionary {
+            $0.m3uURL = nil
+            return $0.url
+        }
         let result = try? await m3uURL?.parsePlaylist()
         let models = result?.compactMap { name, url, extinf -> PlayModel in
-            if let model = dic?[url] {
+            if let model = dic[url] {
+                model.m3uURL = m3uURL
                 return model
             } else {
-                let model = PlayModel(url: url, name: name, extinf: extinf)
-                model.m3uURL = self.m3uURL
-                try? model.managedObjectContext?.save()
+                let model = PlayModel(context: viewContext, url: url, name: name, extinf: extinf)
+                model.m3uURL = m3uURL
                 return model
             }
         } ?? []
+        if count != Int16(models.count) {
+            count = Int16(models.count)
+        }
+        if viewContext.hasChanges {
+            Task { @MainActor in
+                try? viewContext.save()
+            }
+        }
         return models
     }
 }
@@ -106,7 +128,7 @@ extension PlayModel {
         request.sortDescriptors = [
             NSSortDescriptor(
                 keyPath: \PlayModel.playTime,
-                ascending: true
+                ascending: false
             ),
         ]
         request.predicate = NSPredicate(format: "playTime != nil")
@@ -117,7 +139,10 @@ extension PlayModel {
 
 extension KSVideoPlayerView {
     init(url: URL) {
-        self.init(model: PlayModel(url: url))
+        let request = NSFetchRequest<PlayModel>(entityName: "PlayModel")
+        request.predicate = NSPredicate(format: "url == %@", url.description)
+        let model = (try? PersistenceController.shared.container.viewContext.fetch(request).first) ?? PlayModel(url: url)
+        self.init(model: model)
     }
 
     init(model: PlayModel) {
@@ -131,7 +156,7 @@ extension KSVideoPlayerView {
         } else if url.lastPathComponent == "vr.mp4" {
             options.display = .vr
         } else if url.lastPathComponent == "mjpeg.flac" {
-            options.videoDisable = true
+//            options.videoDisable = true
             options.syncDecodeAudio = true
         } else if url.lastPathComponent == "subrip.mkv" {
             options.asynchronousDecompression = false
@@ -155,13 +180,16 @@ extension KSVideoPlayerView {
         // set 'listen_timeout' = -1 for rtmp、rtsp
         if url.absoluteString.starts(with: "rtmp") || url.absoluteString.starts(with: "rtsp") {
             options.formatContextOptions["listen_timeout"] = -1
+            options.formatContextOptions["fflags"] = ["nobuffer", "autobsf"]
         } else {
             options.formatContextOptions["listen_timeout"] = 3
         }
         self.init(url: url, options: options) { layer in
             if let layer {
                 model.duration = Int16(layer.player.duration)
-                model.current = Int16(layer.player.currentPlaybackTime)
+                if model.duration > 0 {
+                    model.current = Int16(layer.player.currentPlaybackTime)
+                }
                 try? model.managedObjectContext?.save()
             }
         }

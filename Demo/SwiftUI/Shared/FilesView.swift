@@ -28,31 +28,14 @@ struct FilesView: View {
             return isIncluded
         }
         List(models, id: \.self, selection: $appModel.activeM3UModel) { model in
-            VStack(alignment: .leading) {
-                Text(model.name!).font(.title3)
-                Text(model.m3uURL!.description)
+            #if os(tvOS)
+            NavigationLink(value: model) {
+                M3UView(model: model)
             }
-            .contextMenu {
-                Button {
-                    model.managedObjectContext?.delete(model)
-                } label: {
-                    Label("Delete", systemImage: "trash.fill")
-                }
-                #if !os(tvOS)
-                Button {
-                    #if os(macOS)
-                    UIPasteboard.general.clearContents()
-                    UIPasteboard.general.setString(model.m3uURL!.description, forType: .string)
-                    #else
-                    UIPasteboard.general.setValue(model.m3uURL!, forPasteboardType: "public.url")
-                    #endif
-                } label: {
-                    Label("Copy url", systemImage: "doc.on.doc.fill")
-                }
-                #endif
-            }
+            #else
+            M3UView(model: model)
+            #endif
         }
-        .padding()
         .searchable(text: $nameFilter)
         .toolbar {
             Button {
@@ -62,12 +45,66 @@ struct FilesView: View {
             }
         }
         .sheet(isPresented: $addM3U) {
-            M3UView()
+            AddM3UView()
         }
+    }
+
+    private func cellView(model: M3UModel) -> some View {
+        #if os(tvOS)
+        NavigationLink(value: model) {
+            M3UView(model: model)
+        }
+        #else
+        M3UView(model: model)
+        #endif
     }
 }
 
 struct M3UView: View {
+    @ObservedObject
+    var model: M3UModel
+    var body: some View {
+        VStack(alignment: .leading) {
+            Text(model.name!)
+                .font(.title2)
+                .foregroundColor(.primary)
+            Text("total \(model.count) channels")
+                .font(.callout)
+                .foregroundColor(.secondary)
+            Text(model.m3uURL!.description)
+                .font(.callout)
+                .foregroundColor(.secondary)
+        }
+        .contextMenu {
+            Button {
+                model.managedObjectContext?.delete(model)
+            } label: {
+                Label("Delete", systemImage: "trash.fill")
+            }
+            Button {
+                Task {
+                    await _ = model.parsePlaylist(refresh: true)
+                }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise.circle")
+            }
+            #if !os(tvOS)
+            Button {
+                #if os(macOS)
+                UIPasteboard.general.clearContents()
+                UIPasteboard.general.setString(model.m3uURL!.description, forType: .string)
+                #else
+                UIPasteboard.general.setValue(model.m3uURL!, forPasteboardType: "public.url")
+                #endif
+            } label: {
+                Label("Copy url", systemImage: "doc.on.doc.fill")
+            }
+            #endif
+        }
+    }
+}
+
+struct AddM3UView: View {
     @State private var url = ""
     @State private var name = ""
     @EnvironmentObject private var appModel: APPModel
@@ -80,19 +117,18 @@ struct M3UView: View {
             }
             Section {
                 Text("Links to playlists you add will be public. All people can see it. But only you can modify and delete")
-                HStack {
-                    Button("Cancel") {
-                        dismiss()
+                Button("Done") {
+                    if let url = URL(string: url.trimmingCharacters(in: NSMutableCharacterSet.whitespacesAndNewlines)) {
+                        let name = name.trimmingCharacters(in: NSMutableCharacterSet.whitespacesAndNewlines)
+                        appModel.addM3U(url: url, name: name.count == 0 ? nil : name)
                     }
-                    Spacer()
-                    Button("Done") {
-                        if let url = URL(string: url.trimmingCharacters(in: NSMutableCharacterSet.whitespacesAndNewlines)) {
-                            let name = name.trimmingCharacters(in: NSMutableCharacterSet.whitespacesAndNewlines)
-                            appModel.addM3U(url: url, name: name.count == 0 ? nil : name)
-                        }
-                        dismiss()
-                    }
+                    dismiss()
                 }
+                #if os(macOS)
+                Button("Cancel") {
+                    dismiss()
+                }
+                #endif
             }
         }.padding()
     }

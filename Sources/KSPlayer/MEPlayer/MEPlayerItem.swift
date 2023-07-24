@@ -26,10 +26,12 @@ final class MEPlayerItem {
     private var seekingCompletionHandler: ((Bool) -> Void)?
     // 没有音频数据可以渲染
     private var isAudioStalled = true
-    private var videoMediaTime = CACurrentMediaTime()
+    private var audioClock = KSClock()
+    private var videoClock = KSClock()
     private var isFirst = true
     private var isSeek = false
     private var allPlayerItemTracks = [PlayerItemTrackProtocol]()
+    private var maxFrameDuration = 10.0
     private var videoAudioTracks: [CapacityProtocol] {
         var tracks = [CapacityProtocol]()
         if let audioTrack {
@@ -45,9 +47,12 @@ final class MEPlayerItem {
     private var audioTrack: SyncPlayerItemTrack<AudioFrame>?
     private(set) var assetTracks = [FFmpegAssetTrack]()
     private var videoAdaptation: VideoAdaptationState?
-    private(set) var currentPlaybackTime = TimeInterval(0)
+    var currentPlaybackTime: TimeInterval {
+        state == .seeking ? seekTime : mainClock().positionTime
+    }
+
+    private var seekTime = TimeInterval(0)
     private(set) var startTime = TimeInterval(0)
-    private var videoClockDelay = TimeInterval(0)
     private(set) var duration: TimeInterval = 0
     private(set) var naturalSize = CGSize.zero
     private var error: NSError? {
@@ -231,12 +236,13 @@ extension MEPlayerItem {
             avformat_close_input(&self.formatCtx)
             return
         }
+        maxFrameDuration = formatCtx.pointee.iformat.pointee.flags & AVFMT_TS_DISCONT != 0 ? 10.0 : 3600.0
         options.findTime = CACurrentMediaTime()
         options.formatName = String(cString: formatCtx.pointee.iformat.pointee.name)
         if formatCtx.pointee.start_time != Int64.min {
             startTime = CMTime(value: formatCtx.pointee.start_time, timescale: AV_TIME_BASE).seconds
         }
-        currentPlaybackTime = startTime
+        mainClock().positionTime = startTime
         duration = TimeInterval(max(formatCtx.pointee.duration, 0) / Int64(AV_TIME_BASE))
         if duration > startTime {
             duration -= startTime
@@ -410,7 +416,7 @@ extension MEPlayerItem {
     private func readThread() {
         if state == .opened {
             if options.startPlayTime > 0 {
-                currentPlaybackTime = options.startPlayTime + startTime
+                seekTime = options.startPlayTime + startTime
                 state = .seeking
             } else {
                 state = .reading
@@ -422,7 +428,7 @@ extension MEPlayerItem {
                 condition.wait()
             }
             if state == .seeking {
-                let time = currentPlaybackTime
+                let time = seekTime
                 let timeStamp = Int64(time * TimeInterval(AV_TIME_BASE))
                 let startTime = CACurrentMediaTime()
                 // can not seek to key frame
@@ -446,7 +452,11 @@ extension MEPlayerItem {
                     self.seekingCompletionHandler?(result >= 0)
                     self.seekingCompletionHandler = nil
                 }
+                mainClock().positionTime = time
+                videoClock.positionTime = time
+                videoClock.duration = 0
                 state = .reading
+
             } else if state == .reading {
                 autoreleasepool {
                     reading()
@@ -615,14 +625,14 @@ extension MEPlayerItem: MediaPlayback {
 
     func seek(time: TimeInterval, completion: @escaping ((Bool) -> Void)) {
         if state == .reading || state == .paused {
+            seekTime = time
             state = .seeking
-            currentPlaybackTime = time
             seekingCompletionHandler = completion
             condition.broadcast()
             allPlayerItemTracks.forEach { $0.seek(time: time) }
         } else if state == .finished {
+            seekTime = time
             state = .seeking
-            currentPlaybackTime = time
             seekingCompletionHandler = completion
             read()
         }
@@ -704,53 +714,40 @@ extension MEPlayerItem: CodecCapacityDelegate {
 }
 
 extension MEPlayerItem: OutputRenderSourceDelegate {
-    func setVideo(time: CMTime) {
-        if state == .seeking {
-            return
-        }
-        if isAudioStalled {
-            videoMediaTime = CACurrentMediaTime()
-            currentPlaybackTime = time.seconds - options.audioDelay
-        }
+    func mainClock() -> KSClock {
+        isAudioStalled ? videoClock : audioClock
+    }
+
+    func setVideo(time: CMTime, duration: CMTime) {
+        videoClock.positionTime = time.seconds
+        videoClock.duration = duration.seconds
     }
 
     func setAudio(time: CMTime) {
-        if state == .seeking {
-            return
-        }
-        if !isAudioStalled {
-            currentPlaybackTime = time.seconds
-        }
+        audioClock.positionTime = time.seconds
     }
 
     func getVideoOutputRender(force: Bool) -> VideoVTBFrame? {
-        guard let videoTrack else {
+        guard let videoTrack, videoTrack.frameCount > 0 else {
             return nil
         }
-        var desire: TimeInterval = 0
-        let predicate: ((VideoVTBFrame) -> Bool)? = force ? nil : { [weak self] frame -> Bool in
-            guard let self else { return true }
-            desire = self.currentPlaybackTime + self.options.audioDelay
-            #if !os(macOS)
-            desire -= AVAudioSession.sharedInstance().outputLatency
-            #endif
-            if self.isAudioStalled {
-                desire += max(CACurrentMediaTime() - self.videoMediaTime, 0) + self.videoClockDelay
-            }
-            return frame.seconds <= desire
+        let type = force ? .next : options.videoClockSync(main: mainClock(), video: videoClock)
+        switch type {
+        case .remain:
+            return nil
+        case .next:
+            return videoTrack.getOutputRender(where: nil)
+        case .dropNext:
+            _ = videoTrack.getOutputRender(where: nil)
+            return videoTrack.getOutputRender(where: nil)
+        case .flush:
+            videoTrack.outputRenderQueue.flush()
+            return nil
+        case .seek:
+            videoTrack.outputRenderQueue.flush()
+            videoTrack.seekTime = currentPlaybackTime
+            return nil
         }
-        let frame = videoTrack.getOutputRender(where: predicate)
-        if let frame {
-            videoClockDelay = desire - frame.seconds
-            if frame.seconds + 0.4 < desire {
-                let frameCount = videoTrack.frameCount
-                if frameCount > 0 {
-                    KSLog("video delay time: \(desire - frame.seconds) dropped video frame frameCount: \(videoTrack.frameCount) frameMaxCount: \(videoTrack.frameMaxCount)")
-                    _ = videoTrack.getOutputRender(where: nil)
-                }
-            }
-        }
-        return options.videoDisable ? nil : frame
     }
 
     func getAudioOutputRender() -> AudioFrame? {

@@ -24,48 +24,52 @@ struct URLImportView: View {
                 Toggle("Remember URL", isOn: $rememberURL)
                 if historyURLs.count > 0 {
                     Picker("History URL", selection: $playURL) {
+                        Text("None").tag("")
                         ForEach(historyURLs) {
                             Text($0.description).tag($0.description)
                         }
                     }
+                    #if os(tvOS)
+                    .pickerStyle(.inline)
+                    #endif
                 }
             }
+
             Section("HTTP Authentication") {
                 TextField("Username:", text: $username)
                 SecureField("Password:", text: $password)
             }
             Section {
-                HStack {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                    Spacer()
-                    Button("Done") {
-                        dismiss()
-                        let urlString = playURL.trimmingCharacters(in: NSMutableCharacterSet.whitespacesAndNewlines)
-                        if urlString.count > 0, var components = URLComponents(string: urlString) {
-                            if username.count > 0 {
-                                components.user = username
-                            }
-                            if password.count > 0 {
-                                components.password = password
-                            }
-                            if let url = components.url {
-                                if rememberURL {
-                                    if let index = historyURLs.firstIndex(of: url) {
-                                        historyURLs.swapAt(index, historyURLs.startIndex)
-                                    } else {
-                                        historyURLs.insert(url, at: 0)
-                                    }
-                                    if historyURLs.count > 20 {
-                                        historyURLs.removeLast()
-                                    }
+                Button("Done") {
+                    dismiss()
+                    let urlString = playURL.trimmingCharacters(in: NSMutableCharacterSet.whitespacesAndNewlines)
+                    if urlString.count > 0, var components = URLComponents(string: urlString) {
+                        if username.count > 0 {
+                            components.user = username
+                        }
+                        if password.count > 0 {
+                            components.password = password
+                        }
+                        if let url = components.url {
+                            if rememberURL {
+                                if let index = historyURLs.firstIndex(of: url) {
+                                    historyURLs.swapAt(index, historyURLs.startIndex)
+                                } else {
+                                    historyURLs.insert(url, at: 0)
                                 }
-                                appModel.open(url: url)
+                                if historyURLs.count > 20 {
+                                    historyURLs.removeLast()
+                                }
                             }
+                            appModel.open(url: url)
                         }
                     }
                 }
+                #if os(macOS)
+                Button("Cancel") {
+                    dismiss()
+                }
+                #endif
             }
         }
         .padding()
