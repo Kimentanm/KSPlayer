@@ -42,6 +42,7 @@ open class KSOptions {
     public var maxAnalyzeDuration: Int64?
     public var lowres = UInt8(0)
     public var startPlayTime: TimeInterval = 0
+    public var startPlayRate: Float = 1.0
     public var referer: String? {
         didSet {
             if let referer {
@@ -68,7 +69,6 @@ open class KSOptions {
     public var syncDecodeAudio = false
     // sutile
     public var autoSelectEmbedSubtitle = true
-    public var subtitleDelay = 0.0 // s
     public var subtitleDisable = false
     public var isSeekImageSubtitle = false
     // video
@@ -296,7 +296,7 @@ open class KSOptions {
     /**
             在创建解码器之前可以对KSOptions做一些处理。例如判断fieldOrder为tt或bb的话，那就自动加videofilters
      */
-    open func process(assetTrack _: MediaPlayerTrack) {}
+    open func process(assetTrack _: some MediaPlayerTrack) {}
 
     #if os(tvOS)
     open func preferredDisplayCriteria(refreshRate _: Float, videoDynamicRange _: Int32) -> AVDisplayCriteria? {
@@ -345,7 +345,7 @@ open class KSOptions {
             return .remain
         } else {
             if diff < -0.04 {
-                KSLog("video delay=\(diff), clock=\(desire), delay count:\(videoClockDelayCount)")
+                KSLog("video delay=\(diff), clock=\(desire), delay count=\(videoClockDelayCount)")
             }
             if diff < -0.1 {
                 videoClockDelayCount += 1

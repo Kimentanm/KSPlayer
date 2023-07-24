@@ -92,9 +92,6 @@ open class KSPlayerLayer: UIView {
             player.playbackVolume = oldValue.playbackVolume
             player.delegate = self
             player.contentMode = .scaleAspectFit
-            if let view = player.view {
-                addSubview(view)
-            }
             prepareToPlay()
         }
     }
@@ -179,15 +176,13 @@ open class KSPlayerLayer: UIView {
             firstPlayerType = KSOptions.firstPlayerType
         }
         player = firstPlayerType.init(url: url, options: options)
+        player.playbackRate = options.startPlayRate
         isAutoPlay = options.isAutoPlay
         super.init(frame: .zero)
         registerRemoteControllEvent()
         player.delegate = self
         player.contentMode = .scaleAspectFit
         prepareToPlay()
-        if let view = player.view {
-            addSubview(view)
-        }
         #if canImport(UIKit)
         NotificationCenter.default.addObserver(self, selector: #selector(enterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(enterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
@@ -323,6 +318,18 @@ open class KSPlayerLayer: UIView {
 
 extension KSPlayerLayer: MediaPlayerDelegate {
     public func readyToPlay(player: some MediaPlayerProtocol) {
+        #if os(macOS)
+        if let window {
+            window.isMovableByWindowBackground = true
+            let naturalSize = player.naturalSize
+            if naturalSize.width > 0, naturalSize.height > 0 {
+                window.aspectRatio = naturalSize
+                var frame = window.frame
+                frame.size.height = frame.width * naturalSize.height / naturalSize.width
+                window.setFrame(frame, display: true)
+            }
+        }
+        #endif
         updateNowPlayingInfo()
         state = .readyToPlay
         for track in player.tracks(mediaType: .video) where track.isEnabled {
@@ -428,7 +435,7 @@ extension KSPlayerLayer: AVPictureInPictureControllerDelegate {
 
 extension KSPlayerLayer {
     #if os(tvOS)
-    private func setDisplayCriteria(track: MediaPlayerTrack) {
+    private func setDisplayCriteria(track: some MediaPlayerTrack) {
         guard let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
               displayManager.isDisplayCriteriaMatchingEnabled,
               !displayManager.isDisplayModeSwitchInProgress
@@ -453,6 +460,9 @@ extension KSPlayerLayer {
             }
         } else {
             state = .prepareToPlay
+        }
+        if let view = player.view {
+            addSubview(view)
         }
     }
 

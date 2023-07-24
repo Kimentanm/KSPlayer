@@ -7,34 +7,30 @@ struct HomeView: View {
     private var nameFilter: String = ""
     @State
     private var groupFilter: String = ""
+    @Default(\.showRecentPlayList)
+    private var showRecentPlayList
 //    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @FetchRequest(fetchRequest: PlayModel.playTimeRequest)
     private var historyModels: FetchedResults<PlayModel>
-    private var recentDocumentURLs = [URL]()
-    init() {
-        #if os(macOS)
-        for url in NSDocumentController.shared.recentDocumentURLs {
-            recentDocumentURLs.append(url)
-        }
-        #endif
-    }
 
     var body: some View {
         ScrollView {
-            Section {
-                ScrollView(.horizontal) {
-                    LazyHStack {
-                        ForEach(historyModels) { model in
-                            appModel.content(model: model)
+            if showRecentPlayList {
+                Section {
+                    ScrollView(.horizontal) {
+                        LazyHStack {
+                            ForEach(historyModels) { model in
+                                appModel.content(model: model)
+                            }
                         }
                     }
+                } header: {
+                    HStack {
+                        Text("Recent Play").font(.title)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
                 }
-            } header: {
-                HStack {
-                    Text("Recent Play").font(.title)
-                    Spacer()
-                }
-                .padding(.horizontal)
             }
             Section {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: MoiveView.width))]) {
@@ -68,12 +64,17 @@ struct HomeView: View {
             } label: {
                 Text("Open File")
             }
+            #if !os(tvOS)
+            .keyboardShortcut("o")
+            #endif
             Button {
                 appModel.openURLImport = true
             } label: {
                 Text("Open URL")
             }
-
+            #if !os(tvOS)
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            #endif
             Picker("group filter", selection: $groupFilter) {
                 Text("All ").tag("")
                 ForEach(appModel.groups) { group in

@@ -48,17 +48,17 @@ struct TracyApp: App {
         #if !os(tvOS)
 //        .handlesExternalEvents(matching: Set(arrayLiteral: "*"))
         .commands {
-            SidebarCommands()
-
             CommandGroup(before: .newItem) {
                 Button("Open") {
                     appModel.openFileImport = true
-                }.keyboardShortcut("o")
+                }
+                .keyboardShortcut("o")
             }
             CommandGroup(before: .newItem) {
                 Button("Open URL") {
                     appModel.openURLImport = true
-                }.keyboardShortcut("o", modifiers: [.command, .shift])
+                }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
             }
         }
         #endif
@@ -77,12 +77,13 @@ struct TracyApp: App {
         WindowGroup("player", for: PlayModel.self) { $model in
             if let model {
                 KSVideoPlayerView(model: model)
+                    .navigationTitle(model.name!)
             }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultPosition(.center)
         Settings {
-            SettingView()
+            TabBarItem.Setting.destination
         }
 //        MenuBarExtra {
 //            MenuBar()
@@ -110,7 +111,7 @@ class APPModel: ObservableObject {
         }
     }
 
-    var tabSelected: TabBarItem? = .Files
+    @Published var tabSelected: TabBarItem = .Files
     @Published var path = NavigationPath()
     @Published var openFileImport = false
     @Published var openURLImport = false
@@ -141,16 +142,10 @@ class APPModel: ObservableObject {
         }
         KSOptions.logger = FileLog(fileHandle: fileHandle)
         #endif
-        KSOptions.canBackgroundPlay = true
         KSOptions.firstPlayerType = KSMEPlayer.self
         KSOptions.secondPlayerType = KSMEPlayer.self
-        KSOptions.isAutoPlay = true
-        KSOptions.isSecondOpen = true
-        KSOptions.isAccurateSeek = true
-        KSOptions.isPipPopViewController = true
+        _ = Defaults.shared
         KSOptions.subtitleDataSouces = [DirectorySubtitleDataSouce(), ShooterSubtitleDataSouce(), AssrtSubtitleDataSouce(token: "5IzWrb2J099vmA96ECQXwdRSe9xdoBUv")]
-//        KSOptions.isUseAudioRenderer = true
-//        KSOptions.isLoopPlay = true
         if let activeM3UURL {
             addM3U(url: activeM3UURL)
             tabSelected = .Home
