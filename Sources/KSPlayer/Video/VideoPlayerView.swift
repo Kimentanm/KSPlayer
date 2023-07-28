@@ -434,7 +434,7 @@ extension VideoPlayerView {
         }
         let videoTracks = playerLayer?.player.tracks(mediaType: .video) ?? []
         toolBar.videoSwitchButton.setMenu(title: NSLocalizedString("switch video", comment: ""), current: videoTracks.first(where: { $0.isEnabled }), list: videoTracks) { value in
-            value.name + " \(value.naturalSize.width)x\(value.naturalSize.height)"
+            "#\(value.trackID) \(value.name),\(value.naturalSize.width)x\(value.naturalSize.height)"
         } completition: { [weak self] value in
             guard let self else { return }
             if let value {
@@ -443,7 +443,7 @@ extension VideoPlayerView {
         }
         let audioTracks = playerLayer?.player.tracks(mediaType: .audio) ?? []
         toolBar.audioSwitchButton.setMenu(title: NSLocalizedString("switch audio", comment: ""), current: audioTracks.first(where: { $0.isEnabled }), list: audioTracks) { value in
-            "\(value.channelLayoutDescribe),\(value.audioStreamBasicDescription?.mChannelsPerFrame ?? 0)ch,\(((value.audioStreamBasicDescription?.mSampleRate ?? 0) / 1000).cleanZero)kHz"
+            "#\(value.trackID) \(value.channelLayoutDescribe),\(value.audioStreamBasicDescription?.mChannelsPerFrame ?? 0)ch,\(((value.audioStreamBasicDescription?.mSampleRate ?? 0) / 1000).cleanZero)kHz"
         } completition: { [weak self] value in
             guard let self else { return }
             if let value {
