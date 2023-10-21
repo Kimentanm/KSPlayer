@@ -21,7 +21,7 @@ public class KSSlider: UXSlider {
         addGestureRecognizer(panGesture)
         addTarget(self, action: #selector(progressSliderTouchBegan(_:)), for: .touchDown)
         addTarget(self, action: #selector(progressSliderValueChanged(_:)), for: .valueChanged)
-        addTarget(self, action: #selector(progressSliderTouchEnded(_:)), for: [.touchUpInside, .touchCancel, .touchUpOutside, .primaryActionTriggered])
+        addTarget(self, action: #selector(progressSliderTouchEnded(_:)), for: [.touchUpInside, .touchCancel, .touchUpOutside])
     }
 
     @available(*, unavailable)
