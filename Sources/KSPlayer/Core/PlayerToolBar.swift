@@ -47,11 +47,11 @@ public class PlayerToolBar: UIStackView {
                 let text = currentTime.toString(for: timeType)
                 currentTimeLabel.text = text
                 timeLabel.text = "\(text) / \(totalTime.toString(for: timeType))"
-                if isLiveStream {
-                    timeSlider.value = Float(todayInterval)
-                } else {
-                    timeSlider.value = Float(currentTime)
-                }
+//                if isLiveStream {
+//                    timeSlider.value = Float(todayInterval)
+//                } else {
+//                    timeSlider.value = Float(currentTime)
+//                }
             }
         }
     }
