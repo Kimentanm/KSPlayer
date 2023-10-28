@@ -50,7 +50,7 @@ public enum KSPlayerState: CustomStringConvertible {
         }
     }
 
-    public var isPlaying: Bool { self == .readyToPlay || self == .buffering || self == .bufferFinished }
+    public var isPlaying: Bool { self == .buffering || self == .bufferFinished }
 }
 
 public protocol KSPlayerLayerDelegate: AnyObject {
@@ -62,9 +62,12 @@ public protocol KSPlayerLayerDelegate: AnyObject {
 
 open class KSPlayerLayer: UIView {
     public weak var delegate: KSPlayerLayerDelegate?
-    @Published public var bufferingProgress: Int = 0
-    @Published public var loopCount: Int = 0
-    @Published public var isPipActive = false {
+    @Published
+    public var bufferingProgress: Int = 0
+    @Published
+    public var loopCount: Int = 0
+    @Published
+    public var isPipActive = false {
         didSet {
             if #available(tvOS 14.0, *) {
                 guard let pipController = player.pipController else {
@@ -179,7 +182,9 @@ open class KSPlayerLayer: UIView {
         player.playbackRate = options.startPlayRate
         isAutoPlay = options.isAutoPlay
         super.init(frame: .zero)
-        registerRemoteControllEvent()
+        if options.registerRemoteControll {
+            registerRemoteControllEvent()
+        }
         player.delegate = self
         player.contentMode = .scaleAspectFit
         prepareToPlay()
@@ -204,9 +209,7 @@ open class KSPlayerLayer: UIView {
         }
         NotificationCenter.default.removeObserver(self)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        #if os(tvOS)
-        UIApplication.shared.windows.first?.avDisplayManager.preferredDisplayCriteria = nil
-        #endif
+        options.playerLayerDeinit()
     }
 
     public func set(url: URL, options: KSOptions) {
@@ -232,6 +235,9 @@ open class KSPlayerLayer: UIView {
     open func play() {
         UIApplication.shared.isIdleTimerDisabled = true
         isAutoPlay = true
+        if state == .error {
+            player.prepareToPlay()
+        }
         if player.isReadyToPlay {
             if state == .playedToTheEnd {
                 Task {
@@ -246,10 +252,6 @@ open class KSPlayerLayer: UIView {
                 player.play()
             }
             timer.fireDate = Date.distantPast
-        } else {
-            if state == .error {
-                player.prepareToPlay()
-            }
         }
         state = player.loadState == .playable ? .bufferFinished : .buffering
         MPNowPlayingInfoCenter.default().playbackState = .playing
@@ -276,9 +278,6 @@ open class KSPlayerLayer: UIView {
         player.playbackVolume = 1
         UIApplication.shared.isIdleTimerDisabled = false
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
-        #if os(tvOS)
-        UIApplication.shared.windows.first?.avDisplayManager.preferredDisplayCriteria = nil
-        #endif
     }
 
     open func seek(time: TimeInterval, autoPlay: Bool, completion: @escaping ((Bool) -> Void)) {
@@ -321,22 +320,26 @@ extension KSPlayerLayer: MediaPlayerDelegate {
         #if os(macOS)
         if let window {
             window.isMovableByWindowBackground = true
-            let naturalSize = player.naturalSize
-            if naturalSize.width > 0, naturalSize.height > 0 {
-                window.aspectRatio = naturalSize
-                var frame = window.frame
-                frame.size.height = frame.width * naturalSize.height / naturalSize.width
-                window.setFrame(frame, display: true)
+            if options.automaticWindowResize {
+                let naturalSize = player.naturalSize
+                if naturalSize.width > 0, naturalSize.height > 0 {
+                    window.aspectRatio = naturalSize
+                    var frame = window.frame
+                    frame.size.height = frame.width * naturalSize.height / naturalSize.width
+                    window.setFrame(frame, display: true)
+                }
             }
         }
         #endif
         updateNowPlayingInfo()
         state = .readyToPlay
-        for track in player.tracks(mediaType: .video) where track.isEnabled {
-            #if os(tvOS)
-            setDisplayCriteria(track: track)
-            #endif
+        #if os(iOS)
+        if #available(iOS 14.2, *) {
+            if options.canStartPictureInPictureAutomaticallyFromInline {
+                player.pipController?.canStartPictureInPictureAutomaticallyFromInline = true
+            }
         }
+        #endif
         if isAutoPlay {
             if shouldSeekTo > 0 {
                 seek(time: shouldSeekTo, autoPlay: true) { [weak self] _ in
@@ -434,33 +437,10 @@ extension KSPlayerLayer: AVPictureInPictureControllerDelegate {
 // MARK: - private functions
 
 extension KSPlayerLayer {
-    #if os(tvOS)
-    private func setDisplayCriteria(track: some MediaPlayerTrack) {
-        guard let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
-              displayManager.isDisplayCriteriaMatchingEnabled,
-              !displayManager.isDisplayModeSwitchInProgress
-        else {
-            return
-        }
-        if let criteria = options.preferredDisplayCriteria(refreshRate: track.nominalFrameRate,
-                                                           videoDynamicRange: track.dynamicRange(options).rawValue)
-        {
-            displayManager.preferredDisplayCriteria = criteria
-        }
-    }
-    #endif
-
     private func prepareToPlay() {
         startTime = CACurrentMediaTime()
         bufferedCount = 0
         player.prepareToPlay()
-        if isAutoPlay {
-            DispatchQueue.main.async {
-                self.state = .buffering
-            }
-        } else {
-            state = .prepareToPlay
-        }
         if let view = player.view {
             addSubview(view)
         }
@@ -471,6 +451,12 @@ extension KSPlayerLayer {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = [MPMediaItemPropertyPlaybackDuration: player.duration]
         } else {
             MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyPlaybackDuration] = player.duration
+        }
+        if MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyTitle] == nil, let title = player.metadata["title"] {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyTitle] = title
+        }
+        if MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtist] == nil, let artist = player.metadata["artist"] {
+            MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPMediaItemPropertyArtist] = artist
         }
         var current: [MPNowPlayingInfoLanguageOption] = []
         var langs: [MPNowPlayingInfoLanguageOptionGroup] = []
@@ -484,7 +470,7 @@ extension KSPlayerLayer {
                 }
             }
         }
-        if langs.count > 0 {
+        if !langs.isEmpty {
             MPRemoteCommandCenter.shared().enableLanguageOptionCommand.isEnabled = true
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo?[MPNowPlayingInfoPropertyAvailableLanguageOptions] = langs
@@ -510,7 +496,7 @@ extension KSPlayerLayer {
         }
     }
 
-    private func registerRemoteControllEvent() {
+    public func registerRemoteControllEvent() {
         let remoteCommand = MPRemoteCommandCenter.shared()
         remoteCommand.playCommand.addTarget { [weak self] _ in
             guard let self else {

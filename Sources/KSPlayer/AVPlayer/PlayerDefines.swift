@@ -1,5 +1,5 @@
 //
-//  File.swift
+//  PlayerDefines.swift
 //  KSPlayer
 //
 //  Created by kintan on 2018/3/9.
@@ -39,31 +39,6 @@ public extension KSOptions {
 //        lhs.trackID == rhs.trackID
 //    }
 // }
-
-public extension MediaPlayerTrack {
-    var codecType: FourCharCode {
-        mediaSubType.rawValue
-    }
-
-    func dynamicRange(_ options: KSOptions) -> DynamicRange {
-        let cotentRange: DynamicRange
-        if dovi != nil || codecType.string == "dvhe" || codecType == kCMVideoCodecType_DolbyVisionHEVC {
-            cotentRange = .dolbyVision
-        } else if transferFunction == kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String { /// HDR
-            cotentRange = .hdr10
-        } else if transferFunction == kCVImageBufferTransferFunction_ITU_R_2100_HLG as String { /// HDR
-            cotentRange = .hlg
-        } else {
-            cotentRange = .sdr
-        }
-
-        return options.availableDynamicRange(cotentRange) ?? cotentRange
-    }
-
-    var colorSpace: CGColorSpace? {
-        KSOptions.colorSpace(ycbcrMatrix: yCbCrMatrix as CFString?, transferFunction: transferFunction as CFString?)
-    }
-}
 
 public enum DynamicRange: Int32 {
     case sdr = 0
@@ -186,6 +161,12 @@ public protocol CapacityProtocol {
     var frameMaxCount: Int { get }
     var isEndOfFile: Bool { get }
     var mediaType: AVFoundation.AVMediaType { get }
+}
+
+extension CapacityProtocol {
+    var loadedTime: TimeInterval {
+        TimeInterval(packetCount + frameCount) / TimeInterval(fps)
+    }
 }
 
 public struct LoadingState {
@@ -357,78 +338,103 @@ public extension URL {
     }
 
     func parsePlaylist() async throws -> [(String, URL, [String: String])] {
-        guard let data = try? await data(), let string = String(data: data, encoding: .utf8) else {
+        let data = try await data()
+        guard let string = String(data: data, encoding: .utf8) else {
             return []
         }
-        /*
-         #EXTINF:-1 tvg-id="ExampleTV.ua",Example TV (720p) [Not 24/7]
-         #EXTVLCOPT:http-referrer=http://example.com/
-         #EXTVLCOPT:http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64)
-         http://example.com/stream.m3u8
-         */
-        return string.components(separatedBy: "#EXTINF:").compactMap { content -> (String, URL, [String: String])? in
-            let content = content.replacingOccurrences(of: "\r\n", with: "\n")
-            let array = content.split(separator: "\n")
-            guard array.count > 1, let last = array.last, let url = URL(string: String(last)) else {
-                return nil
-            }
-            let infos = array[0].split(separator: ",")
-            guard infos.count > 1, let name = infos.last else {
-                return nil
-            }
-            var extinf = [String: String]()
-            let prefix = "#EXTVLCOPT:"
-            for i in 1 ..< (array.count - 1) {
-                let str = array[i]
-                if str.hasPrefix(prefix) {
-                    let keyValue = str.dropFirst(prefix.count).split(separator: "=")
-                    if keyValue.count == 2 {
-                        extinf[String(keyValue[0])] = String(keyValue[1])
-                    }
-                }
-            }
-            let tvgString: Substring
-            if infos.count > 2 {
-                extinf["duration"] = String(infos[0])
-                tvgString = infos[1]
-            } else {
-                tvgString = infos[0]
-            }
-            tvgString.split(separator: " ").forEach { str in
-                let keyValue = str.split(separator: "=")
-                if keyValue.count == 2 {
-                    extinf[String(keyValue[0])] = keyValue[1].trimmingCharacters(in: CharacterSet(charactersIn: #"""#))
-                } else {
-                    extinf["duration"] = String(keyValue[0])
-                }
-            }
-            return (String(name), url, extinf)
+        let scanner = Scanner(string: string)
+        var entrys = [(String, URL, [String: String])]()
+        guard scanner.scanString("#EXTM3U") != nil else {
+            return []
         }
+        while !scanner.isAtEnd {
+            if let entry = parseM3U(scanner: scanner) {
+                entrys.append(entry)
+            }
+        }
+        return entrys
     }
 
-    func data() async throws -> Data {
+    /*
+     #EXTINF:-1 tvg-id="ExampleTV.ua" tvg-logo="https://image.com" group-title="test test", Example TV (720p) [Not 24/7]
+     #EXTVLCOPT:http-referrer=http://example.com/
+     #EXTVLCOPT:http-user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+     http://example.com/stream.m3u8
+     */
+    private func parseM3U(scanner: Scanner) -> (String, URL, [String: String])? {
+        if scanner.scanString("#EXTINF:") == nil {
+            _ = scanner.scanUpToCharacters(from: .newlines)
+            return nil
+        }
+        var extinf = [String: String]()
+        if let duration = scanner.scanDouble() {
+            extinf["duration"] = String(duration)
+        }
+        while scanner.scanString(",") == nil {
+            let key = scanner.scanUpToString("=")
+            _ = scanner.scanString("=\"")
+            let value = scanner.scanUpToString("\"")
+            _ = scanner.scanString("\"")
+            if let key, let value {
+                extinf[key] = value
+            }
+        }
+        let title = scanner.scanUpToCharacters(from: .newlines)
+        if scanner.scanString("#EXTVLCOPT:") != nil {
+            let key = scanner.scanUpToString("=")
+            _ = scanner.scanString("=")
+            let value = scanner.scanUpToCharacters(from: .newlines)
+            if let key, let value {
+                extinf[key] = value
+            }
+        }
+        let urlString = scanner.scanUpToCharacters(from: .newlines)
+        if let urlString, var url = URL(string: urlString) {
+            if url.path.hasPrefix("./") {
+                url = deletingLastPathComponent().appendingPathComponent(url.path).standardized
+            }
+            return (title ?? url.lastPathComponent, url, extinf)
+        }
+        return nil
+    }
+
+    func data(userAgent: String? = nil) async throws -> Data {
         if isFileURL {
             return try Data(contentsOf: self)
         } else {
-            let (data, _) = try await URLSession.shared.data(from: self)
+            var request = URLRequest(url: self)
+            if let userAgent {
+                request.addValue(userAgent, forHTTPHeaderField: "User-Agent")
+            }
+            let (data, _) = try await URLSession.shared.data(for: request)
             return data
         }
     }
 
-    func download(completion: @escaping ((String, URL) -> Void)) {
-        URLSession.shared.downloadTask(with: self) { url, response, _ in
-            guard let url, let response = response as? HTTPURLResponse else {
+    func download(userAgent: String? = nil, completion: @escaping ((String, URL) -> Void)) {
+        var request = URLRequest(url: self)
+        if let userAgent {
+            request.addValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
+        let task = URLSession.shared.downloadTask(with: request) { url, response, _ in
+            guard let url, let response else {
                 return
             }
-            let httpFileName = "attachment; filename="
-            var filename = url.lastPathComponent
-            if var disposition = response.value(forHTTPHeaderField: "Content-Disposition"), disposition.hasPrefix(httpFileName) {
-                disposition.removeFirst(httpFileName.count)
-                filename = disposition
-            }
             // 下载的临时文件要马上就用。不然可能会马上被清空
-            completion(filename, url)
-        }.resume()
+            completion(response.suggestedFilename ?? url.lastPathComponent, url)
+        }
+        task.resume()
+    }
+}
+
+extension HTTPURLResponse {
+    var filename: String? {
+        let httpFileName = "attachment; filename="
+        if var disposition = value(forHTTPHeaderField: "Content-Disposition"), disposition.hasPrefix(httpFileName) {
+            disposition.removeFirst(httpFileName.count)
+            return disposition
+        }
+        return nil
     }
 }
 
@@ -519,6 +525,38 @@ extension TextAlignment: Identifiable {
     public var id: Self { self }
 }
 
+extension HorizontalAlignment: Hashable, RawRepresentable {
+    public typealias RawValue = String
+    public init?(rawValue: RawValue) {
+        if rawValue == "Leading" {
+            self = .leading
+        } else if rawValue == "Center" {
+            self = .center
+        } else if rawValue == "Trailing" {
+            self = .trailing
+        } else {
+            return nil
+        }
+    }
+
+    public var rawValue: RawValue {
+        switch self {
+        case .leading:
+            return "Leading"
+        case .center:
+            return "Center"
+        case .trailing:
+            return "Trailing"
+        default:
+            return ""
+        }
+    }
+}
+
+extension HorizontalAlignment: Identifiable {
+    public var id: Self { self }
+}
+
 extension VerticalAlignment: Hashable, RawRepresentable {
     public typealias RawValue = String
     public init?(rawValue: RawValue) {
@@ -560,7 +598,7 @@ extension Color: RawRepresentable {
         }
 
         do {
-            let color = try NSKeyedUnarchiver.unarchiveTopLevelObjectWithData(data) as? UIColor ?? .black
+            let color = try NSKeyedUnarchiver.unarchivedObject(ofClass: UIColor.self, from: data) ?? .black
             self = Color(color)
         } catch {
             self = .black

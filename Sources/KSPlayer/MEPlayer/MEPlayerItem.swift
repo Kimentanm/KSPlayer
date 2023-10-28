@@ -43,6 +43,7 @@ final class MEPlayerItem {
         return tracks
     }
 
+    private var audioRecognizer: AudioRecognizer?
     private var videoTrack: SyncPlayerItemTrack<VideoVTBFrame>?
     private var audioTrack: SyncPlayerItemTrack<AudioFrame>?
     private(set) var assetTracks = [FFmpegAssetTrack]()
@@ -54,6 +55,7 @@ final class MEPlayerItem {
     private var seekTime = TimeInterval(0)
     private(set) var startTime = TimeInterval(0)
     private(set) var duration: TimeInterval = 0
+    private(set) var fileSize: Double = 0
     private(set) var naturalSize = CGSize.zero
     private var error: NSError? {
         didSet {
@@ -81,13 +83,12 @@ final class MEPlayerItem {
         }
     }
 
-    private lazy var timer: Timer = .scheduledTimer(withTimeInterval: 0.02, repeats: true) { [weak self] _ in
+    private lazy var timer: Timer = .scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
         self?.codecDidChangeCapacity()
     }
 
     private static var onceInitial: Void = {
-        var result = SSL_library_init()
-        result = avformat_network_init()
+        var result = avformat_network_init()
         av_log_set_callback { ptr, level, format, args in
             guard let format else {
                 return
@@ -99,7 +100,7 @@ final class MEPlayerItem {
             }
             if let ptr {
                 let avclass = ptr.assumingMemoryBound(to: UnsafePointer<AVClass>.self).pointee
-                if avclass.pointee.category == AV_CLASS_CATEGORY_NA, avclass == &ffurl_context_class {
+                if avclass == &ffurl_context_class {
                     let context = ptr.assumingMemoryBound(to: URLContext.self).pointee
                     if let opaque = context.interrupt_callback.opaque {
                         let playerItem = Unmanaged<MEPlayerItem>.fromOpaque(opaque).takeUnretainedValue()
@@ -119,9 +120,9 @@ final class MEPlayerItem {
             }
             // 找不到解码器
             if log.hasPrefix("parser not found for codec") {
-                KSLog(log)
+                KSLog(level: .error, log)
             }
-            KSLog(level: LogLevel(rawValue: level) ?? KSOptions.logLevel, log)
+            KSLog(level: LogLevel(rawValue: level) ?? .warning, log)
         }
     }()
 
@@ -134,6 +135,11 @@ final class MEPlayerItem {
         operationQueue.maxConcurrentOperationCount = 1
         operationQueue.qualityOfService = .userInteractive
         _ = MEPlayerItem.onceInitial
+        if let locale = options.audioLocale {
+            audioRecognizer = AudioRecognizer(locale: locale) { text in
+                print(text)
+            }
+        }
     }
 
     func select(track: some MediaPlayerTrack) {
@@ -198,6 +204,7 @@ extension MEPlayerItem {
 //        formatCtx.pointee.io_open = { formatCtx, context, url, flags, options -> Int32 in
 //            return 0
 //        }
+        setHttpProxy()
         var avOptions = options.formatContextOptions.avOptions
         let urlString: String
         if url.isFileURL {
@@ -243,11 +250,13 @@ extension MEPlayerItem {
         if formatCtx.pointee.start_time != Int64.min {
             startTime = CMTime(value: formatCtx.pointee.start_time, timescale: AV_TIME_BASE).seconds
         }
-        mainClock().positionTime = startTime
-        duration = TimeInterval(max(formatCtx.pointee.duration, 0) / Int64(AV_TIME_BASE))
+        videoClock.positionTime = startTime
+        audioClock.positionTime = startTime
+        duration = TimeInterval(max(formatCtx.pointee.duration, 0) * 100 / Int64(AV_TIME_BASE)) / 100.0
         if duration > startTime {
             duration -= startTime
         }
+        fileSize = Double(formatCtx.pointee.bit_rate) * duration / 8
         createCodec(formatCtx: formatCtx)
         if let outputURL = options.outputURL {
             openOutput(url: outputURL)
@@ -344,9 +353,11 @@ extension MEPlayerItem {
         var videoIndex: Int32 = -1
         if !options.videoDisable {
             let videos = assetTracks.filter { $0.mediaType == .video }
-            let bitRates = videos.map(\.bitRate)
+            let bitRates = videos.map(\.bitRate).filter {
+                $0 > 0
+            }
             let wantedStreamNb: Int32
-            if videos.count > 0, let index = options.wantedVideo(bitRates: bitRates) {
+            if !videos.isEmpty, let index = options.wantedVideo(bitRates: bitRates) {
                 wantedStreamNb = videos[index].trackID
             } else {
                 wantedStreamNb = -1
@@ -373,7 +384,7 @@ extension MEPlayerItem {
                 track.delegate = self
                 allPlayerItemTracks.append(track)
                 videoTrack = track
-                if videos.count > 1, options.videoAdaptable {
+                if bitRates.count > 1, options.videoAdaptable {
                     let bitRateState = VideoAdaptationState.BitRateState(bitRate: first.bitRate, time: CACurrentMediaTime())
                     videoAdaptation = VideoAdaptationState(bitRates: bitRates.sorted(by: <), duration: duration, fps: first.nominalFrameRate, bitRateStates: [bitRateState])
                 }
@@ -382,7 +393,7 @@ extension MEPlayerItem {
 
         let audios = assetTracks.filter { $0.mediaType == .audio }
         let wantedStreamNb: Int32
-        if audios.count > 0, let index = options.wantedAudio(infos: audios.map { ($0.bitRate, $0.language) }) {
+        if !audios.isEmpty, let index = options.wantedAudio(infos: audios.map { ($0.bitRate, $0.language) }) {
             wantedStreamNb = audios[index].trackID
         } else {
             wantedStreamNb = -1
@@ -446,6 +457,9 @@ extension MEPlayerItem {
                 if state == .closed {
                     break
                 }
+                if time != seekTime {
+                    continue
+                }
                 isSeek = true
                 allPlayerItemTracks.forEach { $0.seek(time: time) }
                 DispatchQueue.main.async { [weak self] in
@@ -453,9 +467,8 @@ extension MEPlayerItem {
                     self.seekingCompletionHandler?(result >= 0)
                     self.seekingCompletionHandler = nil
                 }
-                mainClock().positionTime = time
+                audioClock.positionTime = time
                 videoClock.positionTime = time
-                videoClock.duration = 0
                 state = .reading
 
             } else if state == .reading {
@@ -480,12 +493,13 @@ extension MEPlayerItem {
                 let index = Int(corePacket.pointee.stream_index)
                 if let outputIndex = streamMapping[index],
                    let inputTb = formatCtx.pointee.streams[index]?.pointee.time_base,
-                   let outputTb = outputFormatCtx.pointee.streams[outputIndex]?.pointee.time_base
+                   let outputTb = outputFormatCtx.pointee.streams[outputIndex]?.pointee.time_base,
+                   let outputPacket
                 {
                     av_packet_ref(outputPacket, corePacket)
-                    outputPacket?.pointee.stream_index = Int32(outputIndex)
+                    outputPacket.pointee.stream_index = Int32(outputIndex)
                     av_packet_rescale_ts(outputPacket, inputTb, outputTb)
-                    outputPacket?.pointee.pos = -1
+                    outputPacket.pointee.pos = -1
                     let ret = av_interleaved_write_frame(outputFormatCtx, outputPacket)
                     if ret < 0 {
                         KSLog("can not av_interleaved_write_frame")
@@ -636,6 +650,9 @@ extension MEPlayerItem: MediaPlayback {
             state = .seeking
             seekingCompletionHandler = completion
             read()
+        } else if state == .seeking {
+            seekTime = time
+            seekingCompletionHandler = completion
         }
         isAudioStalled = audioTrack == nil
     }
@@ -719,9 +736,8 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
         isAudioStalled ? videoClock : audioClock
     }
 
-    func setVideo(time: CMTime, duration: CMTime) {
+    func setVideo(time: CMTime) {
         videoClock.positionTime = time.seconds
-        videoClock.duration = duration.seconds
     }
 
     func setAudio(time: CMTime) {
@@ -729,29 +745,39 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
     }
 
     func getVideoOutputRender(force: Bool) -> VideoVTBFrame? {
-        guard let videoTrack, videoTrack.frameCount > 0 else {
+        guard let videoTrack else {
             return nil
         }
-        let type = force ? .next : options.videoClockSync(main: mainClock(), video: videoClock)
+        let fps = videoTrack.fps
+        var type: ClockProcessType = force ? .next : .remain
+        let predicate: ((VideoVTBFrame) -> Bool)? = force ? nil : { [weak self] frame -> Bool in
+            guard let self else { return true }
+            type = self.options.videoClockSync(main: self.mainClock(), nextVideoTime: frame.seconds, fps: fps)
+            return type != .remain
+        }
+        let frame = videoTrack.getOutputRender(where: predicate)
         switch type {
         case .remain:
-            return nil
+            break
         case .next:
-            return videoTrack.getOutputRender(where: nil)
+            break
         case .dropNext:
             _ = videoTrack.getOutputRender(where: nil)
-            return videoTrack.getOutputRender(where: nil)
         case .flush:
             videoTrack.outputRenderQueue.flush()
-            return nil
         case .seek:
             videoTrack.outputRenderQueue.flush()
             videoTrack.seekTime = currentPlaybackTime
-            return nil
         }
+        return frame
     }
 
     func getAudioOutputRender() -> AudioFrame? {
-        audioTrack?.getOutputRender(where: nil)
+        if let frame = audioTrack?.getOutputRender(where: nil) {
+            audioRecognizer?.append(frame: frame)
+            return frame
+        } else {
+            return nil
+        }
     }
 }

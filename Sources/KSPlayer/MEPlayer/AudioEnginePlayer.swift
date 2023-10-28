@@ -1,5 +1,5 @@
 //
-//  AudioOutput.swift
+//  AudioEnginePlayer.swift
 //  KSPlayer
 //
 //  Created by kintan on 2018/3/11.
@@ -80,12 +80,15 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
     }
 
     private let engine = AVAudioEngine()
+    private var sourceNode: AVAudioSourceNode?
+    private var sourceNodeAudioFormat: AVAudioFormat?
 
 //    private let reverb = AVAudioUnitReverb()
 //    private let nbandEQ = AVAudioUnitEQ()
 //    private let distortion = AVAudioUnitDistortion()
 //    private let delay = AVAudioUnitDelay()
     private let timePitch = AVAudioUnitTimePitch()
+    private var sampleSize = UInt32(MemoryLayout<Float>.size)
     private let dynamicsProcessor = AVAudioUnitEffect(audioComponentDescription:
         AudioComponentDescription(componentType: kAudioUnitType_Effect,
                                   componentSubType: kAudioUnitSubType_DynamicsProcessor,
@@ -93,7 +96,6 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
                                   componentFlags: 0,
                                   componentFlagsMask: 0))
     private var currentRenderReadOffset = UInt32(0)
-    private var sampleSize = UInt32(MemoryLayout<Float>.size)
     weak var renderSource: OutputRenderSourceDelegate?
     private var currentRender: AudioFrame? {
         didSet {
@@ -101,10 +103,6 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
                 currentRenderReadOffset = 0
             }
         }
-    }
-
-    var isPaused: Bool {
-        engine.isRunning
     }
 
     var playbackRate: Float {
@@ -135,39 +133,70 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
     }
 
     func prepare(audioFormat: AVAudioFormat) {
-        engine.stop()
-        engine.reset()
-        sampleSize = audioFormat.sampleSize
-        KSLog("outputFormat channelLayout AudioFormat: \(audioFormat)")
-        if let channelLayout = audioFormat.channelLayout {
-            KSLog("outputFormat channelLayout tag: \(channelLayout.layoutTag)")
-            KSLog("outputFormat channelLayout channelDescriptions: \(channelLayout.layout.channelDescriptions)")
-        }
-        //        engine.attach(nbandEQ)
-        //        engine.attach(distortion)
-        //        engine.attach(delay)
-        let sourceNode = AVAudioSourceNode(format: audioFormat) { [weak self] _, _, frameCount, audioBufferList in
-            self?.audioPlayerShouldInputData(ioData: UnsafeMutableAudioBufferListPointer(audioBufferList), numberOfFrames: frameCount)
-            return noErr
-        }
-        engine.attach(sourceNode)
         engine.attach(dynamicsProcessor)
         engine.attach(timePitch)
-        engine.connect(nodes: [sourceNode, dynamicsProcessor, timePitch, engine.mainMixerNode], format: audioFormat)
         if let audioUnit = engine.outputNode.audioUnit {
             addRenderNotify(audioUnit: audioUnit)
         }
+        ceateSourceNode(audioFormat: audioFormat)
+    }
+
+    func ceateSourceNode(audioFormat: AVAudioFormat) {
+        if sourceNodeAudioFormat == audioFormat {
+            return
+        }
+        sourceNodeAudioFormat = audioFormat
+        KSLog("[audio] outputFormat AudioFormat: \(audioFormat)")
+        if let channelLayout = audioFormat.channelLayout {
+            KSLog("[audio] outputFormat tag: \(channelLayout.layoutTag)")
+            KSLog("[audio] outputFormat channelDescriptions: \(channelLayout.layout.channelDescriptions)")
+        }
+        let isRunning = engine.isRunning
+        engine.stop()
+        engine.reset()
+        sourceNode = AVAudioSourceNode(format: audioFormat) { [weak self] _, timestamp, frameCount, audioBufferList in
+            if timestamp.pointee.mSampleTime == 0 {
+                return noErr
+            }
+            self?.audioPlayerShouldInputData(ioData: UnsafeMutableAudioBufferListPointer(audioBufferList), numberOfFrames: frameCount)
+            return noErr
+        }
+        guard let sourceNode else {
+            return
+        }
+        KSLog("[audio] new sourceNode inputFormat: \(sourceNode.inputFormat(forBus: 0))")
+        sampleSize = audioFormat.sampleSize
+        engine.attach(sourceNode)
+        var nodes = [sourceNode, dynamicsProcessor, timePitch, engine.mainMixerNode]
+        if audioFormat.channelCount > 2 {
+            nodes.append(engine.outputNode)
+        }
+        // 一定要传入format，这样多音轨音响才不会有问题。
+        engine.connect(nodes: nodes, format: audioFormat)
         engine.prepare()
+        if isRunning {
+            do {
+                try engine.start()
+            } catch {
+                KSLog(error)
+            }
+        }
     }
 
     func play(time _: TimeInterval) {
         if !engine.isRunning {
-            try? engine.start()
+            do {
+                try engine.start()
+            } catch {
+                KSLog(error)
+            }
         }
     }
 
     func pause() {
-        engine.pause()
+        if engine.isRunning {
+            engine.pause()
+        }
     }
 
     func flush() {
@@ -220,6 +249,15 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
             guard residueLinesize > 0 else {
                 self.currentRender = nil
                 continue
+            }
+            if sourceNodeAudioFormat != currentRender.audioFormat {
+                runInMainqueue { [weak self] in
+                    guard let self else {
+                        return
+                    }
+                    self.ceateSourceNode(audioFormat: currentRender.audioFormat)
+                }
+                return
             }
             let framesToCopy = min(numberOfSamples, residueLinesize)
             let bytesToCopy = Int(framesToCopy * sampleSize)

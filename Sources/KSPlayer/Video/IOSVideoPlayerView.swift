@@ -129,6 +129,9 @@ open class IOSVideoPlayerView: VideoPlayerView {
             }
             originalSuperView = superview
             originalframeConstraints = frameConstraints
+            if let originalframeConstraints {
+                NSLayoutConstraint.deactivate(originalframeConstraints)
+            }
             originalFrame = frame
             originalOrientations = viewController.supportedInterfaceOrientations
             let fullVC = PlayerFullScreenViewController(isHorizonal: isHorizonal)
@@ -186,11 +189,11 @@ open class IOSVideoPlayerView: VideoPlayerView {
             topMaskView.isHidden = KSOptions.topBarShowInCase != .always
         }
         toolBar.playbackRateButton.isHidden = false
-        toolBar.srtButton.isHidden = srtControl.subtitleInfos.count == 0
+        toolBar.srtButton.isHidden = srtControl.subtitleInfos.isEmpty
         if UIDevice.current.userInterfaceIdiom == .phone {
             if isLandscape {
                 landscapeButton.isHidden = true
-                toolBar.srtButton.isHidden = srtControl.subtitleInfos.count == 0
+                toolBar.srtButton.isHidden = srtControl.subtitleInfos.isEmpty
             } else {
                 toolBar.srtButton.isHidden = true
                 if let image = maskImageView.image {

@@ -6,15 +6,28 @@ struct HomeView: View {
     @State
     private var nameFilter: String = ""
     @State
-    private var groupFilter: String = ""
+    private var groupFilter: String?
     @Default(\.showRecentPlayList)
     private var showRecentPlayList
 //    @Environment(\.horizontalSizeClass) var horizontalSizeClass
-    @FetchRequest(fetchRequest: PlayModel.playTimeRequest)
-    private var historyModels: FetchedResults<PlayModel>
+    @FetchRequest(fetchRequest: MovieModel.playTimeRequest)
+    private var historyModels: FetchedResults<MovieModel>
+    @FetchRequest
+    private var movieModels: FetchedResults<MovieModel>
+    init(m3uURL: URL?) {
+        let request = MovieModel.fetchRequest()
+        request.sortDescriptors = [NSSortDescriptor(keyPath: \MovieModel.name, ascending: true)]
+        request.predicate = NSPredicate(format: "m3uURL == %@  && name != nil ", m3uURL?.description ?? "nil")
+        _movieModels = FetchRequest<MovieModel>(fetchRequest: request)
+    }
 
     var body: some View {
         ScrollView {
+            #if os(tvOS)
+            HStack {
+                toolbarView
+            }
+            #endif
             if showRecentPlayList {
                 Section {
                     ScrollView(.horizontal) {
@@ -31,15 +44,16 @@ struct HomeView: View {
                     }
                     .padding(.horizontal)
                 }
+                .padding()
             }
             Section {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: MoiveView.width))]) {
-                    let playlist = appModel.playlist.filter { model in
+                    let playlist = movieModels.filter { model in
                         var isIncluded = true
-                        if nameFilter.count > 0 {
+                        if !nameFilter.isEmpty {
                             isIncluded = model.name!.contains(nameFilter)
                         }
-                        if groupFilter.count > 0 {
+                        if let groupFilter {
                             isIncluded = isIncluded && model.group == groupFilter
                         }
                         return isIncluded
@@ -56,13 +70,23 @@ struct HomeView: View {
                 }
                 .padding(.horizontal)
             }
+            .padding()
         }
-        .padding()
+        #if !os(tvOS)
+        // tvos如果加searchable。那就会导致滚动错乱，所以只能去掉了
+        .searchable(text: $nameFilter)
         .toolbar {
+            toolbarView
+        }
+        #endif
+    }
+
+    private var toolbarView: some View {
+        Group {
             Button {
                 appModel.openFileImport = true
             } label: {
-                Text("Open File")
+                Label("Open File", systemImage: "plus.rectangle.on.folder.fill")
             }
             #if !os(tvOS)
             .keyboardShortcut("o")
@@ -70,40 +94,58 @@ struct HomeView: View {
             Button {
                 appModel.openURLImport = true
             } label: {
-                Text("Open URL")
+                Label("Open URL", systemImage: "plus.app.fill")
             }
             #if !os(tvOS)
             .keyboardShortcut("o", modifiers: [.command, .shift])
             #endif
+            let groups = movieModels.reduce(Set<String>()) { partialResult, model in
+                if let group = model.group {
+                    var set = partialResult
+                    set.insert(group)
+                    return set
+                } else {
+                    return partialResult
+                }
+            }.sorted()
             Picker("group filter", selection: $groupFilter) {
-                Text("All ").tag("")
-                ForEach(appModel.groups) { group in
-                    Text(group).tag(group)
+                Text("All").tag(nil as String?)
+                ForEach(groups) { group in
+                    Text(group).tag(group as String?)
                 }
             }
             #if os(tvOS)
-//                    .pickerStyle(.menu)
+            .pickerStyle(.navigationLink)
             #endif
         }
-        #if !os(tvOS)
-        .searchable(text: $nameFilter)
-        #endif
+        .labelStyle(.titleAndIcon)
     }
 }
 
 struct MoiveView: View {
-    #if os(iOS)
-    static let width = min(KSOptions.sceneSize.width, KSOptions.sceneSize.height) / 2 - 20
-    #elseif os(tvOS)
-    static let width = KSOptions.sceneSize.width / 4 - 150
-    #else
-    static let width = CGFloat(192)
-    #endif
-    @ObservedObject var model: PlayModel
+    static let width: CGFloat = {
+        #if canImport(UIKit)
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            return min(KSOptions.sceneSize.width, KSOptions.sceneSize.height) / 2 - 20
+        } else if UIDevice.current.userInterfaceIdiom == .pad {
+            return min(KSOptions.sceneSize.width, KSOptions.sceneSize.height) / 3 - 20
+        } else if UIDevice.current.userInterfaceIdiom == .tv {
+            return KSOptions.sceneSize.width / 4 - 150
+        } else if UIDevice.current.userInterfaceIdiom == .mac {
+            return CGFloat(192)
+        } else {
+            return CGFloat(192)
+        }
+        #else
+        return CGFloat(192)
+        #endif
+    }()
+
+    @ObservedObject var model: MovieModel
     var body: some View {
         VStack {
             image
-            Text(model.name!).lineLimit(1)
+            Text(model.name ?? "").lineLimit(1)
         }
         .frame(width: MoiveView.width)
         .contextMenu {
@@ -111,7 +153,8 @@ struct MoiveView: View {
                 model.isFavorite.toggle()
                 try? model.managedObjectContext?.save()
             } label: {
-                Label(model.isFavorite ? "Cancel favorite" : "Favorite", systemImage: model.isFavorite ? "star" : "star.fill")
+                let isFavorite = model.isFavorite
+                Label(isFavorite ? "Cancel favorite" : "Favorite", systemImage: isFavorite ? "star" : "star.fill")
             }
             #if !os(tvOS)
             Button {

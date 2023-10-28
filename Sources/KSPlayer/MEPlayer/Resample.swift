@@ -1,5 +1,5 @@
 //
-//  SWScale.swift
+//  Resample.swift
 //  KSPlayer-iOS
 //
 //  Created by wangjinbian on 2020/1/27.
@@ -24,12 +24,14 @@ class VideoSwresample: Swresample {
     private var width: Int32 = 0
     private var pool: CVPixelBufferPool?
     private let dstFormat: AVPixelFormat?
-    init(dstFormat: AVPixelFormat? = nil) {
+    private let fps: Float
+    init(dstFormat: AVPixelFormat? = nil, fps: Float = 60) {
         self.dstFormat = dstFormat
+        self.fps = fps
     }
 
     func transfer(avframe: UnsafeMutablePointer<AVFrame>) throws -> MEFrame {
-        let frame = VideoVTBFrame()
+        let frame = VideoVTBFrame(fps: fps)
         if avframe.pointee.format == AV_PIX_FMT_VIDEOTOOLBOX.rawValue {
             frame.corePixelBuffer = unsafeBitCast(avframe.pointee.data.3, to: CVPixelBuffer.self)
         } else {
@@ -66,7 +68,7 @@ class VideoSwresample: Swresample {
         self.height = height
         self.width = width
         let pixelFormatType: OSType
-        if let osType = format.osType(), osType.planeCount() == format.planeCount() {
+        if let osType = format.osType(), osType.planeCount() == format.planeCount(), format.bitDepth() <= 8 {
             pixelFormatType = osType
             sws_freeContext(imgConvertCtx)
             imgConvertCtx = nil
@@ -180,46 +182,42 @@ class AudioSwresample: Swresample {
     private var swrContext: SwrContext?
     private var descriptor: AudioDescriptor
     private var outChannel: AVChannelLayout
-    private let outSampleFmt: AVSampleFormat
-    private let outSampleRate: UInt32
-    private let outInterleaved: Bool
-    init(audioDescriptor: AudioDescriptor, audioFormat: AVAudioFormat) {
+    init(audioDescriptor: AudioDescriptor) {
         descriptor = audioDescriptor
-        outSampleFmt = audioFormat.sampleFormat
-        outInterleaved = audioFormat.isInterleaved
-        outSampleRate = UInt32(audioFormat.sampleRate)
-        outChannel = audioFormat.channelLayout?.channelLayout() ?? AVChannelLayout.defaultValue
-        KSLog("out channelLayout: \(outChannel)")
+        outChannel = audioDescriptor.outChannel
         _ = setup(descriptor: descriptor)
     }
 
     private func setup(descriptor: AudioDescriptor) -> Bool {
-        _ = swr_alloc_set_opts2(&swrContext, &outChannel, outSampleFmt, Int32(outSampleRate), &descriptor.channel, descriptor.sampleFormat, descriptor.sampleRate, 0, nil)
-        let result = swr_init(swrContext)
+        var result = swr_alloc_set_opts2(&swrContext, &descriptor.outChannel, descriptor.audioFormat.sampleFormat, Int32(descriptor.audioFormat.sampleRate), &descriptor.channel, descriptor.sampleFormat, descriptor.sampleRate, 0, nil)
+        result = swr_init(swrContext)
         if result < 0 {
             shutdown()
             return false
         } else {
+            outChannel = descriptor.outChannel
             return true
         }
     }
 
     func transfer(avframe: UnsafeMutablePointer<AVFrame>) throws -> MEFrame {
-        let descriptor = AudioDescriptor(frame: avframe.pointee)
-        if !(self.descriptor == descriptor) {
-            if setup(descriptor: descriptor) {
-                self.descriptor = descriptor
+        let newDescriptor = AudioDescriptor(frame: avframe.pointee)
+        if !(descriptor == newDescriptor) || outChannel != descriptor.outChannel {
+            newDescriptor.setAudioSession(isUseAudioRenderer: descriptor.audioFormat.isInterleaved)
+            if setup(descriptor: newDescriptor) {
+                descriptor = newDescriptor
             } else {
-                throw NSError(errorCode: .auidoSwrInit, userInfo: ["outChannel": outChannel, "inChannel": descriptor.channel])
+                throw NSError(errorCode: .auidoSwrInit, userInfo: ["outChannel": newDescriptor.outChannel, "inChannel": newDescriptor.channel])
             }
         }
         let numberOfSamples = avframe.pointee.nb_samples
         let outSamples = swr_get_out_samples(swrContext, numberOfSamples)
         var frameBuffer = Array(tuple: avframe.pointee.data).map { UnsafePointer<UInt8>($0) }
-        var bufferSize = Int32(0)
-        let channels = outChannel.nb_channels
-        _ = av_samples_get_buffer_size(&bufferSize, channels, outSamples, outSampleFmt, 1)
-        let frame = AudioFrame(bufferSize: bufferSize, channels: UInt32(channels), count: Int(outInterleaved ? 1 : channels))
+        let channels = descriptor.outChannel.nb_channels
+        var bufferSize = [Int32(0)]
+        // 返回值是有乘以声道，所以不用返回值
+        _ = av_samples_get_buffer_size(&bufferSize, channels, outSamples, descriptor.audioFormat.sampleFormat, 1)
+        let frame = AudioFrame(dataSize: Int(bufferSize[0]), audioFormat: descriptor.audioFormat)
         frame.numberOfSamples = UInt32(swr_convert(swrContext, &frame.data, outSamples, &frameBuffer, numberOfSamples))
         return frame
     }
@@ -233,19 +231,24 @@ public class AudioDescriptor: Equatable {
     static let defaultValue = AudioDescriptor()
     public let sampleRate: Int32
     fileprivate let sampleFormat: AVSampleFormat
-    public fileprivate(set) var channel: AVChannelLayout
-    public var channels: AVAudioChannelCount {
+    fileprivate var channel: AVChannelLayout
+    fileprivate var outChannel: AVChannelLayout
+    private(set) var audioFormat: AVAudioFormat
+    public var channelCount: AVAudioChannelCount {
         AVAudioChannelCount(channel.nb_channels)
     }
 
     private init() {
         channel = AVChannelLayout.defaultValue
+        outChannel = channel
         sampleRate = 44100
         sampleFormat = AV_SAMPLE_FMT_FLT
+        audioFormat = AVAudioFormat(standardFormatWithSampleRate: Double(sampleRate), channelLayout: AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_Stereo)!)
     }
 
     init(codecpar: AVCodecParameters) {
         channel = codecpar.ch_layout
+        outChannel = channel
         let sampleRate = codecpar.sample_rate
         if sampleRate <= 0 {
             self.sampleRate = 44100
@@ -253,10 +256,12 @@ public class AudioDescriptor: Equatable {
             self.sampleRate = sampleRate
         }
         sampleFormat = AVSampleFormat(rawValue: codecpar.format)
+        audioFormat = AVAudioFormat(standardFormatWithSampleRate: Double(self.sampleRate), channelLayout: AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_Stereo)!)
     }
 
     init(frame: AVFrame) {
         channel = frame.ch_layout
+        outChannel = channel
         let sampleRate = frame.sample_rate
         if sampleRate <= 0 {
             self.sampleRate = 44100
@@ -264,18 +269,30 @@ public class AudioDescriptor: Equatable {
             self.sampleRate = sampleRate
         }
         sampleFormat = AVSampleFormat(rawValue: frame.format)
+        audioFormat = AVAudioFormat(standardFormatWithSampleRate: Double(self.sampleRate), channelLayout: AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_Stereo)!)
     }
 
     public static func == (lhs: AudioDescriptor, rhs: AudioDescriptor) -> Bool {
         lhs.sampleFormat == rhs.sampleFormat && lhs.sampleRate == rhs.sampleRate && lhs.channel == rhs.channel
     }
 
-    func audioFormat(channels: AVAudioChannelCount) -> AVAudioFormat {
-        var outChannel = channel
-        if channels != self.channels {
-            outChannel = AVChannelLayout()
-            av_channel_layout_default(&outChannel, Int32(channels))
+    private func audioFormat(channelCount: AVAudioChannelCount, isUseAudioRenderer: Bool) {
+        if channelCount != self.channelCount {
+            av_channel_layout_default(&outChannel, Int32(channelCount))
         }
+        let layoutTag: AudioChannelLayoutTag
+        if let tag = outChannel.layoutTag {
+            layoutTag = tag
+        } else {
+            av_channel_layout_default(&outChannel, Int32(channelCount))
+            if let tag = outChannel.layoutTag {
+                layoutTag = tag
+            } else {
+                av_channel_layout_default(&outChannel, 2)
+                layoutTag = outChannel.layoutTag!
+            }
+        }
+        KSLog("[audio] out channelLayout: \(outChannel)")
         var commonFormat: AVAudioCommonFormat
         var interleaved: Bool
         switch sampleFormat {
@@ -307,10 +324,20 @@ public class AudioDescriptor: Equatable {
             commonFormat = .pcmFormatFloat32
             interleaved = false
         }
-        // todo reason: '[[busArray objectAtIndexedSubscript:(NSUInteger)element] setFormat:format error:&nsErr]: returned false,
-        commonFormat = .pcmFormatFloat32
-        interleaved = KSOptions.isUseAudioRenderer
-        return AVAudioFormat(commonFormat: commonFormat, sampleRate: Double(sampleRate), interleaved: interleaved, channelLayout: AVAudioChannelLayout(layoutTag: outChannel.layoutTag)!)
+        interleaved = isUseAudioRenderer
+        if !interleaved {
+            commonFormat = .pcmFormatFloat32
+        }
+        audioFormat = AVAudioFormat(commonFormat: commonFormat, sampleRate: Double(sampleRate), interleaved: interleaved, channelLayout: AVAudioChannelLayout(layoutTag: layoutTag)!)
 //        AVAudioChannelLayout(layout: outChannel.layoutTag.channelLayout)
+    }
+
+    public func setAudioSession(isUseAudioRenderer: Bool) {
+        #if os(macOS)
+        let channelCount = AVAudioChannelCount(2)
+        #else
+        let channelCount = KSOptions.outputNumberOfChannels(channelCount: channelCount, isUseAudioRenderer: isUseAudioRenderer)
+        #endif
+        audioFormat(channelCount: channelCount, isUseAudioRenderer: isUseAudioRenderer)
     }
 }

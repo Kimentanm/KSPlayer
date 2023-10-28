@@ -4,7 +4,8 @@ struct ContentView: View {
     #if !os(tvOS)
     @Environment(\.openWindow) private var openWindow
     #endif
-    @EnvironmentObject private var appModel: APPModel
+    @EnvironmentObject
+    private var appModel: APPModel
     private var initialView: some View {
         #if os(macOS)
         NavigationSplitView {
@@ -14,7 +15,7 @@ struct ContentView: View {
                 link(to: .Files)
             }
         } detail: {
-            appModel.tabSelected.destination
+            appModel.tabSelected.destination(appModel: appModel)
         }
         #else
         TabView(selection: $appModel.tabSelected) {
@@ -28,9 +29,8 @@ struct ContentView: View {
 
     var body: some View {
         initialView
-            .background(Color.black)
             .preferredColorScheme(.dark)
-            .accentColor(.white)
+            .background(Color.black)
             .sheet(isPresented: $appModel.openURLImport) {
                 URLImportView()
             }
@@ -69,7 +69,9 @@ struct ContentView: View {
                 guard let url = try? result.get() else {
                     return
                 }
-                appModel.open(url: url)
+                if url.startAccessingSecurityScopedResource() {
+                    appModel.open(url: url)
+                }
             }
         #endif
             .onOpenURL { url in
@@ -79,21 +81,24 @@ struct ContentView: View {
     }
 
     func link(to item: TabBarItem) -> some View {
-        NavigationLink(value: item) {
-            item.lable
-        }
-        .tag(item)
+        item.lable.tag(item)
     }
 
     func tab(to item: TabBarItem) -> some View {
-        NavigationStack(path: $appModel.path) {
-            item.destination
-                .navigationPlay()
+        Group {
+            if item == .Home {
+                NavigationStack(path: $appModel.path) {
+                    item.destination(appModel: appModel)
+                }
+            } else {
+                NavigationStack {
+                    item.destination(appModel: appModel)
+                }
+            }
         }
         .tabItem {
-            item.lable
-        }
-        .tag(item)
+            item.lable.tag(item)
+        }.tag(item)
     }
 }
 
@@ -116,12 +121,14 @@ enum TabBarItem: Int {
     }
 
     @ViewBuilder
-    var destination: some View {
+    func destination(appModel: APPModel) -> some View {
         switch self {
         case .Home:
-            HomeView()
+            HomeView(m3uURL: appModel.activeM3UModel?.m3uURL)
+                .navigationPlay()
         case .Favorite:
             FavoriteView()
+                .navigationPlay()
         case .Files:
             FilesView()
         case .Setting:
@@ -139,12 +146,17 @@ public extension View {
                 .toolbar(.hidden, for: .tabBar)
             #endif
         }
-        .navigationDestination(for: PlayModel.self) { model in
-            KSVideoPlayerView(model: model)
-                .navigationTitle(model.name!)
-            #if !os(macOS)
-                .toolbar(.hidden, for: .tabBar)
-            #endif
+        .navigationDestination(for: MovieModel.self) { model in
+            model.view
         }
+    }
+}
+
+private extension MovieModel {
+    var view: some View {
+        KSVideoPlayerView(model: self)
+        #if !os(macOS)
+            .toolbar(.hidden, for: .tabBar)
+        #endif
     }
 }

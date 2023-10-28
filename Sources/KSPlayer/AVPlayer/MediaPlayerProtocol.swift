@@ -15,6 +15,8 @@ import AppKit
 
 public protocol MediaPlayback: AnyObject {
     var duration: TimeInterval { get }
+    var fileSize: Double { get }
+    var metadata: [String: String] { get }
     var naturalSize: CGSize { get }
     var currentPlaybackTime: TimeInterval { get }
     func prepareToPlay()
@@ -75,21 +77,14 @@ public protocol MediaPlayerTrack: AnyObject, CustomStringConvertible {
     var name: String { get }
     var language: String? { get }
     var mediaType: AVFoundation.AVMediaType { get }
-    var mediaSubType: CMFormatDescription.MediaSubType { get }
     var nominalFrameRate: Float { get }
-    var rotation: Int16 { get }
     var bitRate: Int64 { get }
-    var naturalSize: CGSize { get }
     var isEnabled: Bool { get set }
-    var depth: Int32 { get }
-    var fullRangeVideo: Bool { get }
-    var colorPrimaries: String? { get }
-    var transferFunction: String? { get }
-    var yCbCrMatrix: String? { get }
     var isImageSubtitle: Bool { get }
-    var audioStreamBasicDescription: AudioStreamBasicDescription? { get }
+    var rotation: Int16 { get }
     var dovi: DOVIDecoderConfigurationRecord? { get }
     var fieldOrder: FFmpegFieldOrder { get }
+    var formatDescription: CMFormatDescription? { get }
     var channelLayoutDescribe: String { get }
 }
 
@@ -134,3 +129,134 @@ public enum FFmpegFieldOrder: UInt8 {
 }
 
 // swiftlint:enable identifier_name
+public extension MediaPlayerTrack {
+    var codecType: FourCharCode {
+        mediaSubType.rawValue
+    }
+
+    var dynamicRange: DynamicRange? {
+        if dovi != nil {
+            return .dolbyVision
+        } else {
+            return formatDescription?.dynamicRange
+        }
+    }
+
+    var colorSpace: CGColorSpace? {
+        KSOptions.colorSpace(ycbcrMatrix: yCbCrMatrix as CFString?, transferFunction: transferFunction as CFString?)
+    }
+
+    var mediaSubType: CMFormatDescription.MediaSubType {
+        formatDescription?.mediaSubType ?? .boxed
+    }
+
+    var audioStreamBasicDescription: AudioStreamBasicDescription? {
+        formatDescription?.audioStreamBasicDescription
+    }
+
+    var naturalSize: CGSize {
+        formatDescription.map { description in
+            let dimensions = description.dimensions
+            let aspectRatio = aspectRatio
+            return CGSize(width: Int(dimensions.width), height: Int(CGFloat(dimensions.height) * aspectRatio.height / aspectRatio.width))
+        } ?? .zero
+    }
+
+    var aspectRatio: CGSize {
+        if let formatDescription, let dictionary = CMFormatDescriptionGetExtensions(formatDescription) as NSDictionary? {
+            if let ratio = dictionary[kCVImageBufferPixelAspectRatioKey] as? NSDictionary,
+               let horizontal = (ratio[kCVImageBufferPixelAspectRatioHorizontalSpacingKey] as? NSNumber)?.intValue,
+               let vertical = (ratio[kCVImageBufferPixelAspectRatioVerticalSpacingKey] as? NSNumber)?.intValue,
+               horizontal > 0, vertical > 0
+            {
+                return CGSize(width: horizontal, height: vertical)
+            }
+        }
+        return CGSize(width: 1, height: 1)
+    }
+
+    var depth: Int32 {
+        if let formatDescription, let dictionary = CMFormatDescriptionGetExtensions(formatDescription) as NSDictionary? {
+            return dictionary[kCMFormatDescriptionExtension_Depth] as? Int32 ?? 24
+        } else {
+            return 24
+        }
+    }
+
+    var fullRangeVideo: Bool {
+        if let formatDescription, let dictionary = CMFormatDescriptionGetExtensions(formatDescription) as NSDictionary? {
+            return dictionary[kCMFormatDescriptionExtension_FullRangeVideo] as? Bool ?? false
+        } else {
+            return false
+        }
+    }
+
+    var colorPrimaries: String? {
+        formatDescription?.colorPrimaries
+    }
+
+    var transferFunction: String? {
+        formatDescription?.transferFunction
+    }
+
+    var yCbCrMatrix: String? {
+        formatDescription?.yCbCrMatrix
+    }
+}
+
+public extension CMFormatDescription {
+    var dynamicRange: DynamicRange {
+        let cotentRange: DynamicRange
+        if codecType.string == "dvhe" || codecType == kCMVideoCodecType_DolbyVisionHEVC {
+            cotentRange = .dolbyVision
+        } else if transferFunction == kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String { /// HDR
+            cotentRange = .hdr10
+        } else if transferFunction == kCVImageBufferTransferFunction_ITU_R_2100_HLG as String { /// HLG
+            cotentRange = .hlg
+        } else {
+            cotentRange = .sdr
+        }
+        return cotentRange
+    }
+
+    var codecType: FourCharCode {
+        mediaSubType.rawValue
+    }
+
+    var colorPrimaries: String? {
+        if let dictionary = CMFormatDescriptionGetExtensions(self) as NSDictionary? {
+            return dictionary[kCVImageBufferColorPrimariesKey] as? String
+        } else {
+            return nil
+        }
+    }
+
+    var transferFunction: String? {
+        if let dictionary = CMFormatDescriptionGetExtensions(self) as NSDictionary? {
+            return dictionary[kCVImageBufferTransferFunctionKey] as? String
+        } else {
+            return nil
+        }
+    }
+
+    var yCbCrMatrix: String? {
+        if let dictionary = CMFormatDescriptionGetExtensions(self) as NSDictionary? {
+            return dictionary[kCVImageBufferYCbCrMatrixKey] as? String
+        } else {
+            return nil
+        }
+    }
+}
+
+func setHttpProxy() {
+    guard let proxySettings = CFNetworkCopySystemProxySettings()?.takeUnretainedValue() as? NSDictionary else {
+        unsetenv("http_proxy")
+        return
+    }
+    guard let proxyHost = proxySettings[kCFNetworkProxiesHTTPProxy] as? String, let proxyPort = proxySettings[kCFNetworkProxiesHTTPPort] as? Int else {
+        unsetenv("http_proxy")
+        return
+    }
+    let httpProxy = "http://\(proxyHost):\(proxyPort)"
+    setenv("http_proxy", httpProxy, 0)
+}

@@ -52,10 +52,10 @@ class SyncPlayerItemTrack<Frame: MEFrame>: PlayerItemTrackProtocol, CustomString
         fps = assetTrack.nominalFrameRate
         // 默认缓存队列大小跟帧率挂钩,经测试除以4，最优
         if mediaType == .audio {
-            let capacity = options.audioFrameMaxCount(fps: fps, channels: Int(assetTrack.audioDescriptor.channels))
+            let capacity = options.audioFrameMaxCount(fps: fps, channelCount: Int(assetTrack.audioDescriptor?.channelCount ?? 2))
             outputRenderQueue = CircularBuffer(initialCapacity: capacity, expanding: false)
         } else if mediaType == .video {
-            outputRenderQueue = CircularBuffer(initialCapacity: options.videoFrameMaxCount(fps: fps), sorted: true, expanding: false)
+            outputRenderQueue = CircularBuffer(initialCapacity: options.videoFrameMaxCount(fps: fps, naturalSize: assetTrack.naturalSize), sorted: true, expanding: false)
         } else {
             outputRenderQueue = CircularBuffer()
         }
@@ -70,6 +70,8 @@ class SyncPlayerItemTrack<Frame: MEFrame>: PlayerItemTrackProtocol, CustomString
     func seek(time: TimeInterval) {
         if options.isAccurateSeek {
             seekTime = time
+        } else {
+            seekTime = 0
         }
         isEndOfFile = false
         state = .flush
@@ -277,9 +279,9 @@ extension SyncPlayerItemTrack {
                 return SubtitleDecode(assetTrack: assetTrack, options: options)
             } else {
                 if mediaType == .video, options.asynchronousDecompression, options.hardwareDecode,
-                   let session = DecompressionSession(codecpar: assetTrack.codecpar, options: options)
+                   let session = DecompressionSession(assetTrack: assetTrack, options: options)
                 {
-                    return VideoToolboxDecode(assetTrack: assetTrack, options: options, session: session)
+                    return VideoToolboxDecode(options: options, session: session)
                 } else {
                     return FFmpegDecode(assetTrack: assetTrack, options: options)
                 }

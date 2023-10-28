@@ -1,5 +1,5 @@
 //
-//  File.swift
+//  AppKitExtend.swift
 //  KSPlayer
 //
 //  Created by kintan on 2018/3/9.
@@ -11,6 +11,8 @@ import AppKit
 import CoreMedia
 import IOKit.pwr_mgt
 
+public typealias UIApplicationDelegate = NSApplicationDelegate
+public typealias UIApplication = NSApplication
 public typealias UIWindow = NSWindow
 public typealias UIViewController = NSViewController
 public typealias UIColor = NSColor
@@ -20,18 +22,22 @@ public typealias UIGestureRecognizer = NSGestureRecognizer
 public typealias UIGestureRecognizerDelegate = NSGestureRecognizerDelegate
 public typealias UIViewContentMode = ContentMode
 public typealias UIFont = NSFont
+public typealias UIFontDescriptor = NSFontDescriptor
 public typealias UIControl = NSControl
 public typealias UITextField = NSTextField
 public typealias UIImageView = NSImageView
 public typealias UITapGestureRecognizer = NSClickGestureRecognizer
 public typealias UXSlider = NSSlider
-public typealias UIApplication = NSApplication
 public typealias UITableView = NSTableView
 public typealias UITableViewDelegate = NSTableViewDelegate
 public typealias UITableViewDataSource = NSTableViewDataSource
 public typealias UITouch = NSTouch
 public typealias UIEvent = NSEvent
 public typealias UIButton = KSButton
+public extension UIFontDescriptor.SymbolicTraits {
+    static var traitItalic = italic
+    static var traitBold = bold
+}
 
 extension NSScreen {
     var scale: CGFloat {

@@ -9,11 +9,16 @@ on:
 jobs:
   buidMacOS:
     name: buidMacOS
-    runs-on: macos-12
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@main
         with:
           submodules: 'true'
+      - name: Set up Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.0.app/Contents/Developer
+          xcode-select -p
+          xcodebuild -version
       - name: Build
         run: swift build -v
       - name: Test
@@ -21,20 +26,39 @@ jobs:
 
   buidIOS:
     name: buidIOS
-    runs-on: macos-12
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@main
         with:
           submodules: 'true'
+      - name: Set up Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.0.app/Contents/Developer
+          xcode-select -p
+          xcodebuild -version
       - name: Build
         run: swift build --sdk `xcrun -sdk iphonesimulator -show-sdk-path` -Xswiftc -target -Xswiftc x86_64-apple-ios13.0-simulator
 
   buidTVOS:
     name: buidTVOS
-    runs-on: macos-12
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@main
         with:
           submodules: 'true'
+      - name: Set up Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.0.app/Contents/Developer
+          xcode-select -p
+          xcodebuild -version
       - name: Build
         run: swift build --sdk `xcrun -sdk appletvsimulator -show-sdk-path` -Xswiftc -target -Xswiftc x86_64-apple-tvos13.0-simulator
+  # buidXROS:
+  #   name: buidXROS
+  #   runs-on: macos-13
+  #   steps:
+  #     - uses: actions/checkout@main
+  #       with:
+  #         submodules: 'true'
+  #     - name: Build
+  #       run: swift build --sdk `xcrun -sdk xrsimulator -show-sdk-path` -Xswiftc -target -Xswiftc x86_64-apple-xros1.0-simulator

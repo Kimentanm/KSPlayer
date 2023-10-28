@@ -17,9 +17,17 @@ public class Defaults: ObservableObject {
         }
     }
 
-    @AppStorage("hardwareDecode") public var hardwareDecode = KSOptions.hardwareDecode {
+    @AppStorage("hardwareDecode")
+    public var hardwareDecode = KSOptions.hardwareDecode {
         didSet {
             KSOptions.hardwareDecode = hardwareDecode
+        }
+    }
+
+    @AppStorage("asynchronousDecompression")
+    public var asynchronousDecompression = KSOptions.asynchronousDecompression {
+        didSet {
+            KSOptions.asynchronousDecompression = asynchronousDecompression
         }
     }
 
@@ -107,27 +115,52 @@ public class Defaults: ObservableObject {
         }
     }
 
-    @AppStorage("textXAlign") public var textXAlign = SubtitleModel.textXAlign {
+    @AppStorage("horizontalAlign")
+    public var horizontalAlign = SubtitleModel.textPosition.horizontalAlign {
         didSet {
-            SubtitleModel.textXAlign = textXAlign
+            SubtitleModel.textPosition.horizontalAlign = horizontalAlign
         }
     }
 
-    @AppStorage("textYAlign") public var textYAlign = SubtitleModel.textYAlign {
+    @AppStorage("verticalAlign")
+    public var verticalAlign = SubtitleModel.textPosition.verticalAlign {
         didSet {
-            SubtitleModel.textYAlign = textYAlign
+            SubtitleModel.textPosition.verticalAlign = verticalAlign
         }
     }
 
-    @AppStorage("textXMargin") public var textXMargin = SubtitleModel.textXMargin {
+    @AppStorage("leftMargin")
+    public var leftMargin = SubtitleModel.textPosition.leftMargin {
         didSet {
-            SubtitleModel.textXMargin = textXMargin
+            SubtitleModel.textPosition.leftMargin = leftMargin
         }
     }
 
-    @AppStorage("textYMargin") public var textYMargin = SubtitleModel.textYMargin {
+    @AppStorage("rightMargin")
+    public var rightMargin = SubtitleModel.textPosition.rightMargin {
         didSet {
-            SubtitleModel.textYMargin = textYMargin
+            SubtitleModel.textPosition.rightMargin = rightMargin
+        }
+    }
+
+    @AppStorage("verticalMargin")
+    public var verticalMargin = SubtitleModel.textPosition.verticalMargin {
+        didSet {
+            SubtitleModel.textPosition.verticalMargin = verticalMargin
+        }
+    }
+
+    @AppStorage("displayCriteriaFormatDescriptionEnabled")
+    public var displayCriteriaFormatDescriptionEnabled = KSOptions.displayCriteriaFormatDescriptionEnabled {
+        didSet {
+            KSOptions.displayCriteriaFormatDescriptionEnabled = displayCriteriaFormatDescriptionEnabled
+        }
+    }
+
+    @AppStorage("yadifMode")
+    public var yadifMode = MEOptions.yadifMode {
+        didSet {
+            MEOptions.yadifMode = yadifMode
         }
     }
 
@@ -141,10 +174,11 @@ public class Defaults: ObservableObject {
         SubtitleModel.textItalic = textItalic
         SubtitleModel.textColor = textColor
         SubtitleModel.textBackgroundColor = textBackgroundColor
-        SubtitleModel.textXAlign = textXAlign
-        SubtitleModel.textYAlign = textYAlign
-        SubtitleModel.textXMargin = textXMargin
-        SubtitleModel.textYMargin = textYMargin
+        SubtitleModel.textPosition.horizontalAlign = horizontalAlign
+        SubtitleModel.textPosition.verticalAlign = verticalAlign
+        SubtitleModel.textPosition.leftMargin = leftMargin
+        SubtitleModel.textPosition.rightMargin = rightMargin
+        SubtitleModel.textPosition.verticalMargin = verticalMargin
         KSOptions.preferredForwardBufferDuration = preferredForwardBufferDuration
         KSOptions.maxBufferDuration = maxBufferDuration
         KSOptions.isLoopPlay = isLoopPlay
@@ -153,6 +187,7 @@ public class Defaults: ObservableObject {
         KSOptions.isSecondOpen = isSecondOpen
         KSOptions.isAccurateSeek = isAccurateSeek
         KSOptions.isPipPopViewController = isPipPopViewController
+        MEOptions.yadifMode = yadifMode
     }
 }
 

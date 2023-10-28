@@ -174,6 +174,7 @@ open class VideoPlayerView: PlayerView {
         topMaskView.gradientLayer.colors = [UIColor.black.withAlphaComponent(0.5).cgColor, UIColor.clear.cgColor]
         #endif
         bottomMaskView.gradientLayer.colors = topMaskView.gradientLayer.colors
+        topMaskView.isHidden = KSOptions.topBarShowInCase != .always
         topMaskView.gradientLayer.startPoint = .zero
         topMaskView.gradientLayer.endPoint = CGPoint(x: 0, y: 1)
         bottomMaskView.gradientLayer.startPoint = CGPoint(x: 0, y: 1)
@@ -248,9 +249,11 @@ open class VideoPlayerView: PlayerView {
         guard !isSliderSliding else { return }
         super.player(layer: layer, currentTime: currentTime, totalTime: totalTime)
         if srtControl.subtitle(currentTime: currentTime) {
-            if let part = srtControl.part {
+            if let part = srtControl.parts.first {
                 subtitleBackView.image = part.image
-                subtitleLabel.attributedText = part.text
+                if let text = part.text {
+                    subtitleLabel.attributedText = text
+                }
                 subtitleBackView.isHidden = false
             } else {
                 subtitleBackView.image = nil
@@ -278,7 +281,7 @@ open class VideoPlayerView: PlayerView {
                     if self.srtControl.selectedSubtitleInfo == nil, layer.options.autoSelectEmbedSubtitle {
                         self.srtControl.selectedSubtitleInfo = self.srtControl.subtitleInfos.first
                     }
-                    self.toolBar.srtButton.isHidden = self.srtControl.subtitleInfos.count == 0
+                    self.toolBar.srtButton.isHidden = self.srtControl.subtitleInfos.isEmpty
                     if #available(iOS 14.0, tvOS 15.0, *) {
                         self.buildMenusForButtons()
                     }
@@ -523,7 +526,7 @@ public extension VideoPlayerView {
 
     private func changeSrt(button _: UIButton) {
         let availableSubtitles = srtControl.subtitleInfos
-        guard availableSubtitles.count > 0 else { return }
+        guard !availableSubtitles.isEmpty else { return }
 
         let alertController = UIAlertController(title: NSLocalizedString("subtitle", comment: ""),
                                                 message: nil,

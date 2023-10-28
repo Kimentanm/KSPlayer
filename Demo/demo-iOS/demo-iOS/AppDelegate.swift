@@ -10,7 +10,7 @@ import AVFoundation
 import KSPlayer
 import UIKit
 
-@UIApplicationMain
+@main
 class AppDelegate: UIResponder, UIApplicationDelegate, UISplitViewControllerDelegate {
     var window: UIWindow?
     func application(_: UIApplication, didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
@@ -24,7 +24,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UISplitViewControllerDele
         KSOptions.isSecondOpen = true
         KSOptions.isAccurateSeek = true
 //        KSOptions.isLoopPlay = true
-        if UIDevice.current.userInterfaceIdiom == .phone || UIDevice.current.userInterfaceIdiom == .tv {
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            window.rootViewController = UINavigationController(rootViewController: RootViewController())
+        } else if UIDevice.current.userInterfaceIdiom == .tv {
             window.rootViewController = UINavigationController(rootViewController: MasterViewController())
         } else {
             let splitViewController = UISplitViewController()
@@ -96,17 +98,32 @@ class MEOptions: KSOptions {
     override func process(assetTrack: some MediaPlayerTrack) {
         if assetTrack.mediaType == .video {
             if [FFmpegFieldOrder.bb, .bt, .tt, .tb].contains(assetTrack.fieldOrder) {
-                videoFilters.append("yadif=mode=1:parity=-1:deint=0")
-                hardwareDecode = false
+                videoFilters.append("yadif_videotoolbox=mode=0:parity=-1:deint=1")
+                asynchronousDecompression = false
             }
+            #if os(tvOS) || os(xrOS)
+            runInMainqueue { [weak self] in
+                guard let self else {
+                    return
+                }
+                if let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
+                   displayManager.isDisplayCriteriaMatchingEnabled,
+                   !displayManager.isDisplayModeSwitchInProgress
+                {
+                    let refreshRate = assetTrack.nominalFrameRate
+                    if KSOptions.displayCriteriaFormatDescriptionEnabled, let formatDescription = assetTrack.formatDescription, #available(tvOS 17.0, *) {
+                        displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, formatDescription: formatDescription)
+                    } else {
+                        if let dynamicRange = assetTrack.dynamicRange {
+                            let videoDynamicRange = self.availableDynamicRange(dynamicRange) ?? dynamicRange
+                            displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: videoDynamicRange.rawValue)
+                        }
+                    }
+                }
+            }
+            #endif
         }
     }
-
-    #if os(tvOS)
-    override open func preferredDisplayCriteria(refreshRate: Float, videoDynamicRange: Int32) -> AVDisplayCriteria? {
-        AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: videoDynamicRange)
-    }
-    #endif
 }
 
 var testObjects: [KSPlayerResource] = {
@@ -132,7 +149,7 @@ var testObjects: [KSPlayerResource] = {
                 options.syncDecodeAudio = true
             } else if url.lastPathComponent == "subrip.mkv" {
                 options.asynchronousDecompression = false
-                options.videoFilters.append("yadif_videotoolbox=mode=0:parity=auto:deint=1")
+                options.videoFilters.append("yadif_videotoolbox=mode=0:parity=-1:deint=1")
             }
             objects.append(KSPlayerResource(url: url, options: options, name: url.lastPathComponent))
         }

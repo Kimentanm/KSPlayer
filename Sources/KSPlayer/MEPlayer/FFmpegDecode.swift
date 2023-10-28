@@ -1,5 +1,5 @@
 //
-//  VideoPlayerItemTrack.swift
+//  FFmpegDecode.swift
 //  KSPlayer
 //
 //  Created by kintan on 2018/3/9.
@@ -28,9 +28,10 @@ class FFmpegDecode: DecodeProtocol {
         codecContext?.pointee.time_base = assetTrack.timebase.rational
         filter = MEFilter(timebase: assetTrack.timebase, isAudio: assetTrack.mediaType == .audio, nominalFrameRate: assetTrack.nominalFrameRate, options: options)
         if assetTrack.mediaType == .video {
-            swresample = VideoSwresample()
+            swresample = VideoSwresample(fps: assetTrack.nominalFrameRate)
         } else {
-            swresample = AudioSwresample(audioDescriptor: assetTrack.audioDescriptor, audioFormat: options.audioFormat)
+            assetTrack.audioDescriptor?.setAudioSession(isUseAudioRenderer: options.isUseAudioRenderer)
+            swresample = AudioSwresample(audioDescriptor: assetTrack.audioDescriptor!)
         }
     }
 
@@ -40,10 +41,10 @@ class FFmpegDecode: DecodeProtocol {
         }
         while true {
             let result = avcodec_receive_frame(codecContext, coreFrame)
-            if result == 0, let avframe = coreFrame {
+            if result == 0, var avframe = coreFrame {
                 do {
-                    var frame = try swresample.transfer(avframe: filter.filter(options: options, inputFrame: avframe, hwFramesCtx: codecContext.pointee.hw_frames_ctx))
-
+                    avframe = filter.filter(options: options, inputFrame: avframe)
+                    var frame = try swresample.transfer(avframe: avframe)
                     frame.timebase = packet.assetTrack.timebase
 //                frame.timebase = Timebase(avframe.pointee.time_base)
                     frame.size = avframe.pointee.pkt_size

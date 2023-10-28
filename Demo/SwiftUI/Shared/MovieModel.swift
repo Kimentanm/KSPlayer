@@ -1,48 +1,90 @@
 //
-//  TestURL.swift
+//  MovieModel.swift
 //  TracyPlayer
 //
 //  Created by kintan on 2023/2/2.
 //
 
 import CoreData
+import CoreMedia
 import Foundation
 import KSPlayer
-
+#if canImport(UIKit)
+import UIKit
+#endif
 class MEOptions: KSOptions {
     static var isUseDisplayLayer = true
+    static var yadifMode = 1
+    override init() {
+        super.init()
+        formatContextOptions["reconnect_on_network_error"] = 1
+        audioLocale = Locale(identifier: "en-US")
+    }
+
     override func process(assetTrack: some MediaPlayerTrack) {
         if assetTrack.mediaType == .video {
             if [FFmpegFieldOrder.bb, .bt, .tt, .tb].contains(assetTrack.fieldOrder) {
-                videoFilters.append("yadif=mode=1:parity=-1:deint=0")
+                // todo 先不要用yadif_videotoolbox，不然会crash。这个后续在看下要怎么解决
+//                videoFilters.append("yadif_videotoolbox=mode=\(MEOptions.yadifMode):parity=-1:deint=1")
+                videoFilters.append("yadif=mode=\(MEOptions.yadifMode):parity=-1:deint=1")
                 hardwareDecode = false
+                asynchronousDecompression = false
+            }
+            #if os(tvOS) || os(xrOS)
+            runInMainqueue { [weak self] in
+                guard let self else {
+                    return
+                }
+                if let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
+                   displayManager.isDisplayCriteriaMatchingEnabled,
+                   !displayManager.isDisplayModeSwitchInProgress
+                {
+                    let refreshRate = assetTrack.nominalFrameRate
+                    if KSOptions.displayCriteriaFormatDescriptionEnabled, let formatDescription = assetTrack.formatDescription, #available(tvOS 17.0, *) {
+                        displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, formatDescription: formatDescription)
+                    } else {
+                        if let dynamicRange = assetTrack.dynamicRange {
+                            let videoDynamicRange = self.availableDynamicRange(dynamicRange) ?? dynamicRange
+                            displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: videoDynamicRange.rawValue)
+                        }
+                    }
+                }
+            }
+            #endif
+        }
+    }
+
+    override func updateVideo(refreshRate: Float, formatDescription: CMFormatDescription?) {
+        #if os(tvOS) || os(xrOS)
+        guard let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
+              displayManager.isDisplayCriteriaMatchingEnabled,
+              !displayManager.isDisplayModeSwitchInProgress
+        else {
+            return
+        }
+        if let formatDescription {
+            if KSOptions.displayCriteriaFormatDescriptionEnabled, #available(tvOS 17.0, *) {
+                displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, formatDescription: formatDescription)
+            } else {
+                displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: formatDescription.dynamicRange.rawValue)
             }
         }
+        #endif
     }
 
     override func isUseDisplayLayer() -> Bool {
         MEOptions.isUseDisplayLayer && display == .plane
     }
-
-    #if os(tvOS)
-    override open func preferredDisplayCriteria(refreshRate: Float, videoDynamicRange: Int32) -> AVDisplayCriteria? {
-        AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: videoDynamicRange)
-    }
-    #endif
 }
 
-extension CodingUserInfoKey {
-    static let managedObjectContext = CodingUserInfoKey(rawValue: "managedObjectContext")!
-}
-
-@objc(PlayModel)
-public class PlayModel: MovieModel, Codable {
+@objc(MovieModel)
+public class MovieModel: NSManagedObject, Codable {
     enum CodingKeys: String, CodingKey {
         case name, url, httpReferer, httpUserAgent
     }
 
     public required convenience init(from decoder: Decoder) throws {
-        self.init(context: PersistenceController.shared.container.viewContext)
+        self.init(context: PersistenceController.shared.viewContext)
         let values = try decoder.container(keyedBy: CodingKeys.self)
         url = try values.decode(URL.self, forKey: .url)
         name = try values.decode(String.self, forKey: .name)
@@ -59,94 +101,225 @@ public class PlayModel: MovieModel, Codable {
     }
 }
 
-extension PlayModel {
-    convenience init(url: URL) {
-        self.init(url: url, name: url.lastPathComponent)
+extension MovieModel {
+    convenience init(context: NSManagedObjectContext = PersistenceController.shared.viewContext, url: URL) {
+        self.init(context: context, url: url, name: url.lastPathComponent)
     }
 
-    convenience init(context: NSManagedObjectContext = PersistenceController.shared.container.viewContext, url: URL, name: String, extinf: [String: String]? = nil) {
+    convenience init(context: NSManagedObjectContext = PersistenceController.shared.viewContext, url: URL, name: String, extinf: [String: String]? = nil) {
         self.init(context: context)
         self.name = name
         self.url = url
-        logo = extinf?["tvg-logo"].flatMap { URL(string: $0) }
-        language = extinf?["tvg-language"]
-        country = extinf?["tvg-country"]
-        group = extinf?["group-title"]
-        tvgID = extinf?["tvg-id"]
-        httpReferer = extinf?["http-referrer"] ?? extinf?["http-referer"]
-        httpUserAgent = extinf?["http-user-agent"]
+        setExt(info: extinf)
+    }
+
+    func setExt(info: [String: String]? = nil) {
+        let logo = info?["tvg-logo"].flatMap { URL(string: $0) }
+        if logo != self.logo {
+            self.logo = logo
+        }
+        let language = info?["tvg-language"]
+        if language != self.language {
+            self.language = language
+        }
+        let country = info?["tvg-country"]
+        if country != self.country {
+            self.country = country
+        }
+        let group = info?["group-title"]
+        if group != self.group {
+            self.group = group
+        }
+        let tvgID = info?["tvg-id"]
+        if tvgID != self.tvgID {
+            self.tvgID = tvgID
+        }
+        let httpReferer = info?["http-referrer"] ?? info?["http-referer"]
+        if httpReferer != self.httpReferer {
+            self.httpReferer = httpReferer
+        }
+        let httpUserAgent = info?["http-user-agent"]
+        if httpUserAgent != self.httpUserAgent {
+            self.httpUserAgent = httpUserAgent
+        }
     }
 }
 
 extension M3UModel {
-    convenience init(context: NSManagedObjectContext = PersistenceController.shared.container.viewContext, url: URL, name: String? = nil) {
+    convenience init(context: NSManagedObjectContext = PersistenceController.shared.viewContext, url: URL, name: String? = nil) {
         self.init(context: context)
         self.name = name ?? url.lastPathComponent
         m3uURL = url
-        try? context.save()
     }
 
-    @MainActor
-    func parsePlaylist(refresh: Bool = false) async -> [PlayModel] {
-        let viewContext = managedObjectContext ?? PersistenceController.shared.container.viewContext
-        let request = NSFetchRequest<PlayModel>(entityName: "PlayModel")
-        request.predicate = NSPredicate(format: "m3uURL == %@", m3uURL!.description)
-        request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
-        let array: [PlayModel] = (try? viewContext.fetch(request)) ?? []
-        guard refresh || array.count == 0 else {
-            return array
+    func delete() {
+        guard let context = managedObjectContext, let m3uURL else {
+            return
         }
-        let dic = array.toDictionary {
-            $0.m3uURL = nil
-            return $0.url
-        }
-        let result = try? await m3uURL?.parsePlaylist()
-        let models = result?.compactMap { name, url, extinf -> PlayModel in
-            if let model = dic[url] {
-                model.m3uURL = m3uURL
-                return model
-            } else {
-                let model = PlayModel(context: viewContext, url: url, name: name, extinf: extinf)
-                model.m3uURL = m3uURL
-                return model
+        context.delete(self)
+        let request = M3UModel.fetchRequest()
+        request.predicate = NSPredicate(format: "m3uURL == %@", m3uURL.description)
+        if let array = try? context.fetch(request), array.isEmpty {
+            let movieRequest = NSFetchRequest<MovieModel>(entityName: "MovieModel")
+            movieRequest.predicate = NSPredicate(format: "m3uURL == %@", m3uURL.description)
+            try? context.fetch(movieRequest).forEach { model in
+                context.delete(model)
             }
-        } ?? []
-        if count != Int16(models.count) {
-            count = Int16(models.count)
+//            let deleteRequest = NSBatchDeleteRequest(fetchRequest: movieRequest)
+//            _ = try? context.execute(deleteRequest)
         }
-        if viewContext.hasChanges {
-            Task { @MainActor in
-                try? viewContext.save()
+        do {
+            try context.save()
+        } catch {
+            KSLog(level: .error, error.localizedDescription)
+        }
+    }
+
+    func getMovieModels() async -> [MovieModel] {
+        let viewContext = managedObjectContext ?? PersistenceController.shared.viewContext
+        let m3uURL = await viewContext.perform {
+            self.m3uURL
+        }
+        guard let m3uURL else {
+            return []
+        }
+        return await viewContext.perform {
+            let request = NSFetchRequest<MovieModel>(entityName: "MovieModel")
+            request.predicate = NSPredicate(format: "m3uURL == %@", m3uURL.description)
+            request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+            return (try? viewContext.fetch(request)) ?? []
+        }
+    }
+
+    func parsePlaylist() async throws -> [MovieModel] {
+        let array = await getMovieModels()
+        let viewContext = managedObjectContext ?? PersistenceController.shared.viewContext
+        let m3uURL = await viewContext.perform {
+            self.m3uURL
+        }
+        guard let m3uURL else {
+            return []
+        }
+        let result = try await m3uURL.parsePlaylist()
+        guard result.count > 0 else {
+            delete()
+            return []
+        }
+        return await viewContext.perform {
+            var dic = [URL?: MovieModel]()
+            array.forEach { model in
+                if let oldModel = dic[model.url] {
+                    if oldModel.playmodel == nil {
+                        viewContext.delete(oldModel)
+                        dic[model.url] = model
+                    } else {
+                        viewContext.delete(model)
+                    }
+                } else {
+                    dic[model.url] = model
+                }
             }
+            let models = result.map { name, url, extinf -> MovieModel in
+                if let model = dic[url] {
+                    dic.removeValue(forKey: url)
+                    if name != model.name {
+                        model.name = name
+                    }
+                    model.setExt(info: extinf)
+                    return model
+                } else {
+                    let model = MovieModel(context: viewContext, url: url, name: name, extinf: extinf)
+                    model.m3uURL = self.m3uURL
+                    return model
+                }
+            }
+            if self.count != Int32(models.count) {
+                self.count = Int32(models.count)
+            }
+            viewContext.perform {
+                if viewContext.hasChanges {
+                    for model in dic.values {
+                        viewContext.delete(model)
+                    }
+                    try? viewContext.save()
+                }
+            }
+            return models
         }
-        return models
+    }
+}
+
+extension MovieModel {
+    static var playTimeRequest: NSFetchRequest<MovieModel> {
+        let request = MovieModel.fetchRequest()
+        request.sortDescriptors = [
+            NSSortDescriptor(
+                keyPath: \MovieModel.playmodel?.playTime,
+                ascending: false
+            ),
+        ]
+        request.predicate = NSPredicate(format: "playmodel.playTime != nil")
+        request.fetchLimit = 20
+        return request
+    }
+
+    public var isFavorite: Bool {
+        get {
+            playmodel?.isFavorite ?? false
+        }
+        set {
+            let playmodel = getPlaymodel()
+            playmodel.isFavorite = newValue
+        }
+    }
+
+    func getPlaymodel() -> PlayModel {
+        if let playmodel {
+            return playmodel
+        }
+        let model = PlayModel()
+        guard let context = managedObjectContext, let privateStore = PersistenceController.shared.privateStore else {
+            return model
+        }
+        let newMovieModel = MovieModel(context: context)
+        newMovieModel.setValuesForKeys(dictionaryWithValues(forKeys: entity.attributesByName.keys.map { $0 }))
+        newMovieModel.playmodel = model
+        context.assign(newMovieModel, to: privateStore)
+//        try? context.save()
+        newMovieModel.save()
+        context.delete(self)
+        return model
+    }
+}
+
+extension NSManagedObject {
+    func save() {
+        guard let context = managedObjectContext else {
+            return
+        }
+        context.perform {
+            do {
+                try context.save()
+            } catch {}
+        }
     }
 }
 
 extension PlayModel {
-    static var playTimeRequest: NSFetchRequest<PlayModel> {
-        let request = NSFetchRequest<PlayModel>(entityName: "PlayModel")
-        request.sortDescriptors = [
-            NSSortDescriptor(
-                keyPath: \PlayModel.playTime,
-                ascending: false
-            ),
-        ]
-        request.predicate = NSPredicate(format: "playTime != nil")
-        request.fetchLimit = 20
-        return request
+    convenience init() {
+        self.init(context: PersistenceController.shared.viewContext)
     }
 }
 
 extension KSVideoPlayerView {
     init(url: URL) {
-        let request = NSFetchRequest<PlayModel>(entityName: "PlayModel")
+        let request = NSFetchRequest<MovieModel>(entityName: "MovieModel")
         request.predicate = NSPredicate(format: "url == %@", url.description)
-        let model = (try? PersistenceController.shared.container.viewContext.fetch(request).first) ?? PlayModel(url: url)
+        let model = (try? PersistenceController.shared.viewContext.fetch(request).first) ?? MovieModel(url: url)
         self.init(model: model)
     }
 
-    init(model: PlayModel) {
+    init(model: MovieModel) {
         let url = model.url!
         let options = MEOptions()
         #if DEBUG
@@ -161,7 +334,7 @@ extension KSVideoPlayerView {
             options.syncDecodeAudio = true
         } else if url.lastPathComponent == "subrip.mkv" {
             options.asynchronousDecompression = false
-            options.videoFilters.append("yadif_videotoolbox=mode=0:parity=auto:deint=1")
+            options.videoFilters.append("yadif_videotoolbox=mode=\(MEOptions.yadifMode):parity=-1:deint=1")
         } else if url.lastPathComponent == "big_buck_bunny.mp4" {
             options.startPlayTime = 25
         } else if url.lastPathComponent == "bipbopall.m3u8" {
@@ -173,25 +346,37 @@ extension KSVideoPlayerView {
         #endif
         options.referer = model.httpReferer
         options.userAgent = model.httpUserAgent
-        model.playTime = Date()
-        if model.duration > 0, model.current > 0, model.duration > model.current + 120 {
-            options.startPlayTime = TimeInterval(model.current)
+        let playmodel = model.getPlaymodel()
+        playmodel.playTime = Date()
+        if playmodel.duration > 0, playmodel.current > 0, playmodel.duration > playmodel.current + 120 {
+            options.startPlayTime = TimeInterval(playmodel.current)
         }
         // There is total different meaning for 'listen_timeout' option in rtmp
         // set 'listen_timeout' = -1 for rtmp、rtsp
-        if url.absoluteString.starts(with: "rtmp") || url.absoluteString.starts(with: "rtsp") {
+        if url.scheme == "rtmp" || url.scheme == "rtsp" {
             options.formatContextOptions["listen_timeout"] = -1
-            options.formatContextOptions["fflags"] = ["nobuffer", "autobsf"]
+            options.formatContextOptions["fflags"] = ["nobuffer"]
+            // tcp or udp
+            options.formatContextOptions["rtsp_transport"] = "tcp"
+            options.probesize = 4096
+            options.maxAnalyzeDuration = 2_000_000
+            options.codecLowDelay = true
+            options.preferredForwardBufferDuration = 1
+            options.maxBufferDuration = 3600
+            options.hardwareDecode = false
         } else {
             options.formatContextOptions["listen_timeout"] = 3
         }
-        self.init(url: url, options: options) { layer in
+        playmodel.save()
+        model.save()
+        self.init(url: url, options: options, title: model.name) { layer in
             if let layer {
-                model.duration = Int16(layer.player.duration)
-                if model.duration > 0 {
-                    model.current = Int16(layer.player.currentPlaybackTime)
+                playmodel.duration = Int16(layer.player.duration)
+                if playmodel.duration > 0 {
+                    playmodel.current = Int16(layer.player.currentPlaybackTime)
                 }
-                try? model.managedObjectContext?.save()
+                playmodel.save()
+                model.save()
             }
         }
     }

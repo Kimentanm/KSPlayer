@@ -93,6 +93,9 @@ extension AVCodecParameters {
         }
         codecContext.pointee.codec_id = codec.pointee.id
         codecContext.pointee.flags2 |= AV_CODEC_FLAG2_FAST
+        if options.codecLowDelay {
+            codecContext.pointee.flags |= AV_CODEC_FLAG_LOW_DELAY
+        }
         var lowres = options.lowres
         if lowres > codec.pointee.max_lowres {
             lowres = codec.pointee.max_lowres
@@ -238,6 +241,7 @@ extension AVPixelFormat {
         }
     }
 
+    // videotoolbox_best_pixel_format
     func bestPixelFormat() -> AVPixelFormat {
         if let desc = av_pix_fmt_desc_get(self) {
             if desc.pointee.flags & UInt64(AV_PIX_FMT_FLAG_ALPHA) != 0 {
@@ -393,16 +397,16 @@ extension AVChannelLayout: Equatable {
 
 extension AVChannelLayout: CustomStringConvertible {
     static let defaultValue = AVChannelLayout(order: AV_CHANNEL_ORDER_NATIVE, nb_channels: 2, u: AVChannelLayout.__Unnamed_union_u(mask: swift_AV_CH_LAYOUT_STEREO), opaque: nil)
-    var layoutTag: AudioChannelLayoutTag {
-        KSLog("FFmepg channelLayout: \(self) order: \(order)")
+    var layoutTag: AudioChannelLayoutTag? {
+        KSLog("[audio] FFmepg AVChannelLayout: \(self) order: \(order) mask: \(u.mask)")
         let tag = layoutMapTuple.first { _, mask in
             u.mask == mask
         }?.tag
         if let tag {
             return tag
         } else {
-            KSLog("can not find AudioChannelLayoutTag FFmepg channelLayout: \(self) order: \(order)")
-            return kAudioChannelLayoutTag_Stereo
+            KSLog("[audio] can not find AudioChannelLayoutTag FFmepg channelLayout: \(self) order: \(order) mask: \(u.mask)")
+            return nil
         }
     }
 
