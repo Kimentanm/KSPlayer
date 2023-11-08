@@ -221,12 +221,12 @@ extension AVChromaLocation {
 }
 
 extension AVPixelFormat {
-    func bitDepth() -> Int32 {
+    var bitDepth: Int32 {
         let descriptor = av_pix_fmt_desc_get(self)
         return descriptor?.pointee.comp.0.depth ?? 8
     }
 
-    func planeCount() -> UInt8 {
+    var planeCount: UInt8 {
         if let desc = av_pix_fmt_desc_get(self) {
             switch desc.pointee.nb_components {
             case 3:
@@ -372,9 +372,7 @@ extension AVRational {
 
 extension AVBufferSrcParameters: Equatable {
     public static func == (lhs: AVBufferSrcParameters, rhs: AVBufferSrcParameters) -> Bool {
-        lhs.format == rhs.format && lhs.time_base == rhs.time_base &&
-            lhs.width == rhs.width && lhs.height == rhs.height && lhs.sample_aspect_ratio == rhs.sample_aspect_ratio &&
-            lhs.sample_rate == rhs.sample_rate && lhs.ch_layout == rhs.ch_layout
+        lhs.format == rhs.format && lhs.width == rhs.width && lhs.height == rhs.height && lhs.sample_aspect_ratio == rhs.sample_aspect_ratio && lhs.sample_rate == rhs.sample_rate && lhs.ch_layout == rhs.ch_layout
     }
 
     var arg: String {

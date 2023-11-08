@@ -8,75 +8,79 @@
 import AVFoundation
 import CoreAudio
 
-protocol AudioPlayer: AnyObject {
+public protocol AudioOutput: FrameOutput {
     var playbackRate: Float { get set }
     var volume: Float { get set }
     var isMuted: Bool { get set }
-    var attackTime: Float { get set }
-    var releaseTime: Float { get set }
-    var threshold: Float { get set }
-    var expansionRatio: Float { get set }
-    var overallGain: Float { get set }
+    init()
     func prepare(audioFormat: AVAudioFormat)
     func play(time: TimeInterval)
-    func pause()
-    func flush()
 }
 
-public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
-    public var attackTime: Float {
+public protocol AudioDynamicsProcessor {
+    var audioUnitForDynamicsProcessor: AudioUnit { get }
+}
+
+public extension AudioDynamicsProcessor {
+    var attackTime: Float {
         get {
             var value = AudioUnitParameterValue(1.0)
-            AudioUnitGetParameter(dynamicsProcessor.audioUnit, kDynamicsProcessorParam_AttackTime, kAudioUnitScope_Global, 0, &value)
+            AudioUnitGetParameter(audioUnitForDynamicsProcessor, kDynamicsProcessorParam_AttackTime, kAudioUnitScope_Global, 0, &value)
             return value
         }
         set {
-            AudioUnitSetParameter(dynamicsProcessor.audioUnit, kDynamicsProcessorParam_AttackTime, kAudioUnitScope_Global, 0, AudioUnitParameterValue(newValue), 0)
+            AudioUnitSetParameter(audioUnitForDynamicsProcessor, kDynamicsProcessorParam_AttackTime, kAudioUnitScope_Global, 0, AudioUnitParameterValue(newValue), 0)
         }
     }
 
-    public var releaseTime: Float {
+    var releaseTime: Float {
         get {
             var value = AudioUnitParameterValue(1.0)
-            AudioUnitGetParameter(dynamicsProcessor.audioUnit, kDynamicsProcessorParam_ReleaseTime, kAudioUnitScope_Global, 0, &value)
+            AudioUnitGetParameter(audioUnitForDynamicsProcessor, kDynamicsProcessorParam_ReleaseTime, kAudioUnitScope_Global, 0, &value)
             return value
         }
         set {
-            AudioUnitSetParameter(dynamicsProcessor.audioUnit, kDynamicsProcessorParam_ReleaseTime, kAudioUnitScope_Global, 0, AudioUnitParameterValue(newValue), 0)
+            AudioUnitSetParameter(audioUnitForDynamicsProcessor, kDynamicsProcessorParam_ReleaseTime, kAudioUnitScope_Global, 0, AudioUnitParameterValue(newValue), 0)
         }
     }
 
-    public var threshold: Float {
+    var threshold: Float {
         get {
             var value = AudioUnitParameterValue(1.0)
-            AudioUnitGetParameter(dynamicsProcessor.audioUnit, kDynamicsProcessorParam_Threshold, kAudioUnitScope_Global, 0, &value)
+            AudioUnitGetParameter(audioUnitForDynamicsProcessor, kDynamicsProcessorParam_Threshold, kAudioUnitScope_Global, 0, &value)
             return value
         }
         set {
-            AudioUnitSetParameter(dynamicsProcessor.audioUnit, kDynamicsProcessorParam_Threshold, kAudioUnitScope_Global, 0, AudioUnitParameterValue(newValue), 0)
+            AudioUnitSetParameter(audioUnitForDynamicsProcessor, kDynamicsProcessorParam_Threshold, kAudioUnitScope_Global, 0, AudioUnitParameterValue(newValue), 0)
         }
     }
 
-    public var expansionRatio: Float {
+    var expansionRatio: Float {
         get {
             var value = AudioUnitParameterValue(1.0)
-            AudioUnitGetParameter(dynamicsProcessor.audioUnit, kDynamicsProcessorParam_ExpansionRatio, kAudioUnitScope_Global, 0, &value)
+            AudioUnitGetParameter(audioUnitForDynamicsProcessor, kDynamicsProcessorParam_ExpansionRatio, kAudioUnitScope_Global, 0, &value)
             return value
         }
         set {
-            AudioUnitSetParameter(dynamicsProcessor.audioUnit, kDynamicsProcessorParam_ExpansionRatio, kAudioUnitScope_Global, 0, AudioUnitParameterValue(newValue), 0)
+            AudioUnitSetParameter(audioUnitForDynamicsProcessor, kDynamicsProcessorParam_ExpansionRatio, kAudioUnitScope_Global, 0, AudioUnitParameterValue(newValue), 0)
         }
     }
 
-    public var overallGain: Float {
+    var overallGain: Float {
         get {
             var value = AudioUnitParameterValue(1.0)
-            AudioUnitGetParameter(dynamicsProcessor.audioUnit, kDynamicsProcessorParam_OverallGain, kAudioUnitScope_Global, 0, &value)
+            AudioUnitGetParameter(audioUnitForDynamicsProcessor, kDynamicsProcessorParam_OverallGain, kAudioUnitScope_Global, 0, &value)
             return value
         }
         set {
-            AudioUnitSetParameter(dynamicsProcessor.audioUnit, kDynamicsProcessorParam_OverallGain, kAudioUnitScope_Global, 0, AudioUnitParameterValue(newValue), 0)
+            AudioUnitSetParameter(audioUnitForDynamicsProcessor, kDynamicsProcessorParam_OverallGain, kAudioUnitScope_Global, 0, AudioUnitParameterValue(newValue), 0)
         }
+    }
+}
+
+public final class AudioEnginePlayer: AudioOutput, AudioDynamicsProcessor {
+    public var audioUnitForDynamicsProcessor: AudioUnit {
+        dynamicsProcessor.audioUnit
     }
 
     private let engine = AVAudioEngine()
@@ -96,7 +100,7 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
                                   componentFlags: 0,
                                   componentFlagsMask: 0))
     private var currentRenderReadOffset = UInt32(0)
-    weak var renderSource: OutputRenderSourceDelegate?
+    public weak var renderSource: OutputRenderSourceDelegate?
     private var currentRender: AudioFrame? {
         didSet {
             if currentRender == nil {
@@ -105,7 +109,7 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
         }
     }
 
-    var playbackRate: Float {
+    public var playbackRate: Float {
         get {
             timePitch.rate
         }
@@ -114,12 +118,12 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
         }
     }
 
-    var volume: Float {
+    public var volume: Float {
         get {
-            engine.mainMixerNode.volume
+            sourceNode?.volume ?? 1
         }
         set {
-            engine.mainMixerNode.volume = newValue
+            sourceNode?.volume = newValue
         }
     }
 
@@ -132,24 +136,22 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
         }
     }
 
-    func prepare(audioFormat: AVAudioFormat) {
+    public init() {
         engine.attach(dynamicsProcessor)
         engine.attach(timePitch)
         if let audioUnit = engine.outputNode.audioUnit {
             addRenderNotify(audioUnit: audioUnit)
         }
-        ceateSourceNode(audioFormat: audioFormat)
     }
 
-    func ceateSourceNode(audioFormat: AVAudioFormat) {
+    public func prepare(audioFormat: AVAudioFormat) {
         if sourceNodeAudioFormat == audioFormat {
             return
         }
         sourceNodeAudioFormat = audioFormat
         KSLog("[audio] outputFormat AudioFormat: \(audioFormat)")
         if let channelLayout = audioFormat.channelLayout {
-            KSLog("[audio] outputFormat tag: \(channelLayout.layoutTag)")
-            KSLog("[audio] outputFormat channelDescriptions: \(channelLayout.layout.channelDescriptions)")
+            KSLog("[audio] outputFormat channelLayout \(channelLayout.channelDescriptions)")
         }
         let isRunning = engine.isRunning
         engine.stop()
@@ -183,7 +185,7 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
         }
     }
 
-    func play(time _: TimeInterval) {
+    public func play(time _: TimeInterval) {
         if !engine.isRunning {
             do {
                 try engine.start()
@@ -193,13 +195,13 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
         }
     }
 
-    func pause() {
+    public func pause() {
         if engine.isRunning {
             engine.pause()
         }
     }
 
-    func flush() {
+    public func flush() {
         currentRender = nil
     }
 
@@ -255,7 +257,7 @@ public final class AudioEnginePlayer: AudioPlayer, FrameOutput {
                     guard let self else {
                         return
                     }
-                    self.ceateSourceNode(audioFormat: currentRender.audioFormat)
+                    self.prepare(audioFormat: currentRender.audioFormat)
                 }
                 return
             }

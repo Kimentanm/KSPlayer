@@ -84,24 +84,23 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
         if codecpar.codec_type == AVMEDIA_TYPE_VIDEO {
             description += ", \(nominalFrameRate) fps"
         }
-        if let value = metadata["language"] {
-            language = Locale.current.localizedString(forLanguageCode: value)
-        } else {
-            language = nil
-        }
+        language = metadata["language"]
         if let value = metadata["title"] {
             name = value
         } else {
             name = language ?? mediaType.rawValue
         }
         description = name + ", " + description
+        // AV_DISPOSITION_DEFAULT
+        if mediaType == .subtitle {
+            isEnabled = !isImageSubtitle || stream.pointee.disposition & AV_DISPOSITION_FORCED == AV_DISPOSITION_FORCED
+        }
         //        var buf = [Int8](repeating: 0, count: 256)
         //        avcodec_string(&buf, buf.count, codecpar, 0)
     }
 
     init?(codecpar: AVCodecParameters) {
         self.codecpar = codecpar
-        let format = AVPixelFormat(rawValue: codecpar.format)
         bitRate = codecpar.bit_rate
         // codec_tag byte order is LSB first CMFormatDescription.MediaSubType(rawValue: codecpar.codec_tag.bigEndian)
         let codecType = codecpar.codec_id.mediaSubType
@@ -173,16 +172,20 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
                 }
                 isConvertNALSize = false
             }
+            let format = AVPixelFormat(rawValue: codecpar.format)
+            let fullRange = codecpar.color_range == AVCOL_RANGE_JPEG
             let dic: NSMutableDictionary = [
                 kCVImageBufferChromaLocationBottomFieldKey: kCVImageBufferChromaLocation_Left,
                 kCVImageBufferChromaLocationTopFieldKey: kCVImageBufferChromaLocation_Left,
-                kCMFormatDescriptionExtension_Depth: format.bitDepth() * Int32(format.planeCount()),
-                kCMFormatDescriptionExtension_FullRangeVideo: codecpar.color_range == AVCOL_RANGE_JPEG,
+                kCMFormatDescriptionExtension_Depth: format.bitDepth * Int32(format.planeCount),
+                kCMFormatDescriptionExtension_FullRangeVideo: fullRange,
                 codecType.rawValue == kCMVideoCodecType_HEVC ? "EnableHardwareAcceleratedVideoDecoder" : "RequireHardwareAcceleratedVideoDecoder": true,
             ]
+            // kCMFormatDescriptionExtension_BitsPerComponent
             if let atomsData {
                 dic[kCMFormatDescriptionExtension_SampleDescriptionExtensionAtoms] = [codecType.rawValue.avc: atomsData]
             }
+            dic[kCVPixelBufferPixelFormatTypeKey] = format.osType(fullRange: fullRange)
             dic[kCVImageBufferPixelAspectRatioKey] = sar.aspectRatio
             dic[kCVImageBufferColorPrimariesKey] = codecpar.color_primaries.colorPrimaries as String?
             dic[kCVImageBufferTransferFunctionKey] = codecpar.color_trc.transferFunction as String?
@@ -228,7 +231,18 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
             stream?.pointee.discard == AVDISCARD_DEFAULT
         }
         set {
-            stream?.pointee.discard = newValue ? AVDISCARD_DEFAULT : AVDISCARD_ALL
+            var discard = newValue ? AVDISCARD_DEFAULT : AVDISCARD_ALL
+            if mediaType == .subtitle, !isImageSubtitle {
+                discard = AVDISCARD_ALL
+            }
+            stream?.pointee.discard = discard
         }
+    }
+}
+
+extension FFmpegAssetTrack {
+    var pixelFormatType: OSType? {
+        let format = AVPixelFormat(codecpar.format)
+        return format.osType(fullRange: fullRangeVideo)
     }
 }

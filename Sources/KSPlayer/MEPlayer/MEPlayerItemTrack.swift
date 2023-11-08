@@ -89,7 +89,7 @@ class SyncPlayerItemTrack<Frame: MEFrame>: PlayerItemTrackProtocol, CustomString
         }
     }
 
-    func getOutputRender(where predicate: ((Frame) -> Bool)?) -> Frame? {
+    func getOutputRender(where predicate: ((Frame, Int) -> Bool)?) -> Frame? {
         let outputFecthRender = outputRenderQueue.pop(where: predicate)
         if outputFecthRender == nil {
             if state == .finished, frameCount == 0 {
@@ -107,7 +107,24 @@ class SyncPlayerItemTrack<Frame: MEFrame>: PlayerItemTrackProtocol, CustomString
         outputRenderQueue.shutdown()
     }
 
+    private var lastPacketBytes = Int32(0)
+    private var lastPacketSeconds = Double(-1)
+    var bitrate = Double(0)
     fileprivate func doDecode(packet: Packet) {
+        if packet.isKeyFrame, packet.assetTrack.mediaType != .subtitle {
+            let seconds = packet.seconds
+            let diff = seconds - lastPacketSeconds
+            if lastPacketSeconds < 0 || diff < 0 {
+                bitrate = 0
+                lastPacketBytes = 0
+                lastPacketSeconds = seconds
+            } else if diff > 0.5 {
+                bitrate = Double(lastPacketBytes) / diff
+                lastPacketBytes = 0
+                lastPacketSeconds = seconds
+            }
+        }
+        lastPacketBytes += packet.size
         let decoder = decoderMap.value(for: packet.assetTrack.trackID, default: makeDecode(assetTrack: packet.assetTrack))
         decoder.decodeFrame(from: packet) { [weak self] result in
             guard let self else {
@@ -155,7 +172,7 @@ final class AsyncPlayerItemTrack<Frame: MEFrame>: SyncPlayerItemTrack<Frame> {
     private var decodeOperation: BlockOperation!
     // 无缝播放使用的PacketQueue
     private var loopPacketQueue: CircularBuffer<Packet>?
-    private var packetQueue = CircularBuffer<Packet>()
+    var packetQueue = CircularBuffer<Packet>()
     override var packetCount: Int { packetQueue.count }
     override var isLoopModel: Bool {
         didSet {

@@ -14,10 +14,11 @@ import UserNotifications
 @main
 struct TracyApp: App {
     #if os(macOS)
-    @NSApplicationDelegateAdaptor private var appDelegate: AppDelegate
+    @NSApplicationDelegateAdaptor
     #else
-    @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
+    @UIApplicationDelegateAdaptor
     #endif
+    private var appDelegate: AppDelegate
     private let appModel = APPModel()
     init() {
         let arguments = ProcessInfo.processInfo.arguments.dropFirst()
@@ -137,7 +138,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
                 }
                 print("Push notification allowed by user")
             } else {
-                print("Error while requesting push notification permission. Error \(error)")
+                print("Error while requesting push notification permission. Error \(String(describing: error))")
             }
         }
     }

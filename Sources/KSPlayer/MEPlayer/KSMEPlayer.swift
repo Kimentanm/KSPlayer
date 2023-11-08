@@ -16,10 +16,10 @@ import AppKit
 public class KSMEPlayer: NSObject {
     private var loopCount = 1
     private var playerItem: MEPlayerItem
-    private let audioOutput: AudioPlayer & FrameOutput
+    public let audioOutput: AudioOutput
     private var options: KSOptions
     private var bufferingCountDownTimer: Timer?
-    public private(set) var videoOutput: MetalPlayView? {
+    public private(set) var videoOutput: (VideoOutput & UIView)? {
         didSet {
             oldValue?.invalidate()
             runInMainqueue {
@@ -36,7 +36,7 @@ public class KSMEPlayer: NSObject {
 
     private lazy var _pipController: Any? = {
         if #available(iOS 15.0, tvOS 15.0, macOS 12.0, *), let videoOutput {
-            let contentSource = AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer: videoOutput.displayView.displayLayer, playbackDelegate: self)
+            let contentSource = AVPictureInPictureController.ContentSource(sampleBufferDisplayLayer: videoOutput.displayLayer, playbackDelegate: self)
             let pip = KSPictureInPictureController(contentSource: contentSource)
             return pip
         } else {
@@ -76,6 +76,15 @@ public class KSMEPlayer: NSObject {
         didSet {
             if playbackRate != audioOutput.playbackRate {
                 audioOutput.playbackRate = playbackRate
+                if audioOutput is AudioUnitPlayer {
+                    var audioFilters = options.audioFilters.filter {
+                        !$0.hasPrefix("atempo=")
+                    }
+                    if playbackRate != 1 {
+                        audioFilters.append("atempo=\(playbackRate)")
+                    }
+                    options.audioFilters = audioFilters
+                }
             }
         }
     }
@@ -100,12 +109,13 @@ public class KSMEPlayer: NSObject {
     }
 
     public required init(url: URL, options: KSOptions) {
+        KSOptions.setAudioSession()
+        audioOutput = KSOptions.audioPlayerType.init()
         playerItem = MEPlayerItem(url: url, options: options)
-        audioOutput = options.isUseAudioRenderer ? AudioRendererPlayer() : AudioEnginePlayer()
         if options.videoDisable {
             videoOutput = nil
         } else {
-            videoOutput = MetalPlayView(options: options)
+            videoOutput = KSOptions.videoPlayerType.init(options: options)
         }
         self.options = options
         super.init()
@@ -122,6 +132,9 @@ public class KSMEPlayer: NSObject {
     }
 
     deinit {
+        #if !os(macOS)
+        try? AVAudioSession.sharedInstance().setPreferredOutputNumberOfChannels(2)
+        #endif
         NotificationCenter.default.removeObserver(self)
         videoOutput?.invalidate()
         playerItem.shutdown()
@@ -149,7 +162,7 @@ private extension KSMEPlayer {
     @objc private func spatialCapabilityChange(notification _: Notification) {
         KSLog("[audio] spatialCapabilityChange")
         tracks(mediaType: .audio).forEach { track in
-            (track as? FFmpegAssetTrack)?.audioDescriptor?.setAudioSession(isUseAudioRenderer: options.isUseAudioRenderer)
+            (track as? FFmpegAssetTrack)?.audioDescriptor?.updateAudioFormat()
         }
     }
 
@@ -164,7 +177,7 @@ private extension KSMEPlayer {
             return
         }
         tracks(mediaType: .audio).forEach { track in
-            (track as? FFmpegAssetTrack)?.audioDescriptor?.setAudioSession(isUseAudioRenderer: options.isUseAudioRenderer)
+            (track as? FFmpegAssetTrack)?.audioDescriptor?.updateAudioFormat()
         }
         audioOutput.flush()
     }
@@ -181,11 +194,14 @@ extension KSMEPlayer: MEPlayerDelegate {
         }
         let audioDescriptor = tracks(mediaType: .audio).first { $0.isEnabled }.flatMap {
             $0 as? FFmpegAssetTrack
-        }?.audioDescriptor ?? .defaultValue
+        }?.audioDescriptor
         runInMainqueue { [weak self] in
             guard let self else { return }
-            self.audioOutput.prepare(audioFormat: audioDescriptor.audioFormat)
-            if let controlTimebase = videoOutput?.displayView.displayLayer.controlTimebase, self.options.startPlayTime > 1 {
+            if let audioDescriptor {
+                KSLog("[audio] audio type: \(self.audioOutput) prepare audioFormat )")
+                self.audioOutput.prepare(audioFormat: audioDescriptor.audioFormat)
+            }
+            if let controlTimebase = videoOutput?.displayLayer.controlTimebase, self.options.startPlayTime > 1 {
                 CMTimebaseSetTime(controlTimebase, time: CMTimeMake(value: Int64(self.options.startPlayTime), timescale: 1))
             }
             self.delegate?.readyToPlay(player: self)
@@ -295,7 +311,7 @@ extension KSMEPlayer: MediaPlayerProtocol {
         if options.videoDisable {
             videoOutput = nil
         } else if videoOutput == nil {
-            videoOutput = MetalPlayView(options: options)
+            videoOutput = KSOptions.videoPlayerType.init(options: options)
             videoOutput?.displayLayerDelegate = self
         }
         self.options = options
@@ -304,7 +320,7 @@ extension KSMEPlayer: MediaPlayerProtocol {
         videoOutput?.renderSource = playerItem
         videoOutput?.options = options
         if KSOptions.isClearVideoWhereReplace {
-            videoOutput?.clear()
+            videoOutput?.flush()
         }
     }
 
@@ -323,6 +339,10 @@ extension KSMEPlayer: MediaPlayerProtocol {
 
     public var seekable: Bool { playerItem.seekable }
 
+    public var videoBitrate: Int { playerItem.videoBitrate }
+
+    public var audioBitrate: Int { playerItem.audioBitrate }
+
     public func seek(time: TimeInterval, completion: @escaping ((Bool) -> Void)) {
         let time = max(time, 0)
         playbackState = .seeking
@@ -339,7 +359,7 @@ extension KSMEPlayer: MediaPlayerProtocol {
         playerItem.seek(time: seekTime + playerItem.startTime) { [weak self] result in
             guard let self else { return }
             if result {
-                if let controlTimebase = self.videoOutput?.displayView.displayLayer.controlTimebase {
+                if let controlTimebase = self.videoOutput?.displayLayer.controlTimebase {
                     CMTimebaseSetTime(controlTimebase, time: CMTimeMake(value: Int64(self.currentPlaybackTime), timescale: 1))
                 }
             }
@@ -400,7 +420,7 @@ extension KSMEPlayer: MediaPlayerProtocol {
     }
 
     public func thumbnailImageAtCurrentTime() async -> CGImage? {
-        await videoOutput?.pixelBuffer?.cgImage()
+        videoOutput?.pixelBuffer?.cgImage()
     }
 
     public func enterBackground() {}
@@ -547,50 +567,5 @@ public extension KSMEPlayer {
 
     var bytesRead: Int64 {
         playerItem.bytesRead
-    }
-
-    var attackTime: Float {
-        get {
-            audioOutput.attackTime
-        }
-        set {
-            audioOutput.attackTime = newValue
-        }
-    }
-
-    var releaseTime: Float {
-        get {
-            audioOutput.releaseTime
-        }
-        set {
-            audioOutput.releaseTime = newValue
-        }
-    }
-
-    var threshold: Float {
-        get {
-            audioOutput.threshold
-        }
-        set {
-            audioOutput.threshold = newValue
-        }
-    }
-
-    var expansionRatio: Float {
-        get {
-            audioOutput.expansionRatio
-        }
-        set {
-            audioOutput.expansionRatio = newValue
-        }
-    }
-
-    var overallGain: Float {
-        get {
-            audioOutput.overallGain
-        }
-        set {
-            audioOutput.overallGain = newValue
-        }
     }
 }

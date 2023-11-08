@@ -13,8 +13,11 @@ import KSPlayer
 import UIKit
 #endif
 class MEOptions: KSOptions {
+    #if os(iOS)
     static var isUseDisplayLayer = true
-    static var yadifMode = 1
+    #else
+    static var isUseDisplayLayer = false
+    #endif
     override init() {
         super.init()
         formatContextOptions["reconnect_on_network_error"] = 1
@@ -22,39 +25,10 @@ class MEOptions: KSOptions {
     }
 
     override func process(assetTrack: some MediaPlayerTrack) {
-        if assetTrack.mediaType == .video {
-            if [FFmpegFieldOrder.bb, .bt, .tt, .tb].contains(assetTrack.fieldOrder) {
-                // todo 先不要用yadif_videotoolbox，不然会crash。这个后续在看下要怎么解决
-//                videoFilters.append("yadif_videotoolbox=mode=\(MEOptions.yadifMode):parity=-1:deint=1")
-                videoFilters.append("yadif=mode=\(MEOptions.yadifMode):parity=-1:deint=1")
-                hardwareDecode = false
-                asynchronousDecompression = false
-            }
-            #if os(tvOS) || os(xrOS)
-            runInMainqueue { [weak self] in
-                guard let self else {
-                    return
-                }
-                if let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
-                   displayManager.isDisplayCriteriaMatchingEnabled,
-                   !displayManager.isDisplayModeSwitchInProgress
-                {
-                    let refreshRate = assetTrack.nominalFrameRate
-                    if KSOptions.displayCriteriaFormatDescriptionEnabled, let formatDescription = assetTrack.formatDescription, #available(tvOS 17.0, *) {
-                        displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, formatDescription: formatDescription)
-                    } else {
-                        if let dynamicRange = assetTrack.dynamicRange {
-                            let videoDynamicRange = self.availableDynamicRange(dynamicRange) ?? dynamicRange
-                            displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: videoDynamicRange.rawValue)
-                        }
-                    }
-                }
-            }
-            #endif
-        }
+        super.process(assetTrack: assetTrack)
     }
 
-    override func updateVideo(refreshRate: Float, formatDescription: CMFormatDescription?) {
+    override func updateVideo(refreshRate: Float, isDovi: Bool, formatDescription: CMFormatDescription?) {
         #if os(tvOS) || os(xrOS)
         guard let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
               displayManager.isDisplayCriteriaMatchingEnabled,
@@ -66,7 +40,8 @@ class MEOptions: KSOptions {
             if KSOptions.displayCriteriaFormatDescriptionEnabled, #available(tvOS 17.0, *) {
                 displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, formatDescription: formatDescription)
             } else {
-                displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: formatDescription.dynamicRange.rawValue)
+                let dynamicRange = isDovi ? .dolbyVision : formatDescription.dynamicRange
+                displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: dynamicRange.rawValue)
             }
         }
         #endif

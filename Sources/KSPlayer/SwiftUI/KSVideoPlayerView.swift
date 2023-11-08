@@ -53,6 +53,9 @@ public struct KSVideoPlayerView: View {
                         }
                     }
                 }
+                .onBufferChanged { bufferedCount, consumeTime in
+                    print("bufferedCount \(bufferedCount), consumeTime \(consumeTime)")
+                }
             #if canImport(UIKit)
                 .onSwipe { direction in
                     playerCoordinator.isMaskShow = true
@@ -91,9 +94,9 @@ public struct KSVideoPlayerView: View {
                         playerCoordinator.skip(interval: 15)
                     #if os(macOS)
                     case .up:
-                        playerCoordinator.playerLayer?.player.playbackVolume += 1
+                        playerCoordinator.playerLayer?.player.playbackVolume += 0.2
                     case .down:
-                        playerCoordinator.playerLayer?.player.playbackVolume -= 1
+                        playerCoordinator.playerLayer?.player.playbackVolume -= 0.2
                     #else
                     case .up:
                         showDropDownMenu = false
@@ -483,8 +486,8 @@ struct VideoSettingView: View {
                     Label("Audio track", systemImage: "waveform")
                 }
             }
-
-            if let videoTracks = config.playerLayer?.player.tracks(mediaType: .video), !videoTracks.isEmpty {
+            let videoTracks = config.playerLayer?.player.tracks(mediaType: .video)
+            if let videoTracks, !videoTracks.isEmpty {
                 Picker(selection: Binding {
                     videoTracks.first { $0.isEnabled }?.trackID
                 } set: { value in
@@ -519,8 +522,11 @@ struct VideoSettingView: View {
             Button("Search Sutitle") {
                 subtitleModel.searchSubtitle(query: subtitleTitle, languages: ["zh-cn"])
             }
+            Text("Stream Type: \((videoTracks?.first { $0.isEnabled }?.fieldOrder ?? .progressive).description)")
+            Text("Audio bitrate: \(config.playerLayer?.player.audioBitrate ?? 0) b/s")
+            Text("Video bitrate: \(config.playerLayer?.player.videoBitrate ?? 0) b/s")
             if let fileSize = config.playerLayer?.player.fileSize, fileSize > 0 {
-                Text("File Size \(String(format: "%.1f", fileSize / 1_000_000))MB")
+                Text("File Size: \(String(format: "%.1f", fileSize / 1_000_000))MB")
             }
         }
         .padding()

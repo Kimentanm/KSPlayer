@@ -70,13 +70,10 @@ open class KSOptions {
     // audio
     public var audioFilters = [String]()
     public var syncDecodeAudio = false
-    /// true: AVSampleBufferAudioRenderer false: AVAudioEngine
-    public var isUseAudioRenderer = KSOptions.isUseAudioRenderer
     // Locale(identifier: "en-US") Locale(identifier: "zh-CN")
     public var audioLocale: Locale?
     // sutile
     public var autoSelectEmbedSubtitle = true
-    public var subtitleDisable = false
     public var isSeekImageSubtitle = false
     // video
     public var display = DisplayEnum.plane
@@ -157,17 +154,13 @@ open class KSOptions {
 
     // 缓冲算法函数
     open func playable(capacitys: [CapacityProtocol], isFirst: Bool, isSeek: Bool) -> LoadingState {
-        let packetCount = capacitys.map(\.packetCount).max() ?? 0
-        let frameCount = capacitys.map(\.frameCount).max() ?? 0
+        let packetCount = capacitys.map(\.packetCount).min() ?? 0
+        let frameCount = capacitys.map(\.frameCount).min() ?? 0
         let isEndOfFile = capacitys.allSatisfy(\.isEndOfFile)
         let loadedTime = capacitys.map(\.loadedTime).min() ?? 0
         let progress = loadedTime * 100.0 / preferredForwardBufferDuration
         let isPlayable = capacitys.allSatisfy { capacity in
             if capacity.isEndOfFile && capacity.packetCount == 0 {
-                return true
-            }
-            // 处理视频轨道一致没有值的问题(纯音频)
-            if capacitys.count > 1, capacity.mediaType == .video && capacity.frameCount == 0 && capacity.packetCount == 0 {
                 return true
             }
             guard capacity.frameCount >= capacity.frameMaxCount >> 2 else {
@@ -184,8 +177,8 @@ open class KSOptions {
                 if capacity.mediaType == .audio || isSecondOpen {
                     if isFirst {
                         return true
-                    } else if isSeek, capacity.packetCount >= Int(capacity.fps) {
-                        return true
+                    } else {
+                        return capacity.loadedTime >= preferredForwardBufferDuration / 2
                     }
                 }
             }
@@ -247,6 +240,7 @@ open class KSOptions {
         nil
     }
 
+    // 虽然只有iOS才支持PIP。但是因为AVSampleBufferDisplayLayer能够支持HDR10+。所以默认还是推荐用AVSampleBufferDisplayLayer
     open func isUseDisplayLayer() -> Bool {
         display == .plane
     }
@@ -303,29 +297,17 @@ open class KSOptions {
      */
     open func process(assetTrack: some MediaPlayerTrack) {
         if assetTrack.mediaType == .video {
-            #if os(tvOS) || os(xrOS)
-            runInMainqueue {
-                if let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
-                   displayManager.isDisplayCriteriaMatchingEnabled,
-                   !displayManager.isDisplayModeSwitchInProgress
-                {
-                    let refreshRate = assetTrack.nominalFrameRate
-                    if KSOptions.displayCriteriaFormatDescriptionEnabled, let formatDescription = assetTrack.formatDescription, #available(tvOS 17.0, *) {
-                        displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, formatDescription: formatDescription)
-                    } else {
-                        //                    if let dynamicRange = assetTrack.dynamicRange {
-                        //                        let videoDynamicRange = availableDynamicRange(dynamicRange) ?? dynamicRange
-                        //                        displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: videoDynamicRange.rawValue)
-                        //                    }
-                    }
-                }
+            if [FFmpegFieldOrder.bb, .bt, .tt, .tb].contains(assetTrack.fieldOrder) {
+                // todo 先不要用yadif_videotoolbox，不然会crash。这个后续在看下要怎么解决
+//                videoFilters.append("yadif_videotoolbox=mode=\(KSOptions.yadifMode):parity=-1:deint=1")
+                videoFilters.append("yadif=mode=\(KSOptions.yadifMode):parity=-1:deint=1")
+                hardwareDecode = false
+                asynchronousDecompression = false
             }
-
-            #endif
         }
     }
 
-    open func updateVideo(refreshRate: Float, formatDescription: CMFormatDescription?) {
+    open func updateVideo(refreshRate: Float, isDovi: Bool, formatDescription: CMFormatDescription?) {
         #if os(tvOS) || os(xrOS)
         guard let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
               displayManager.isDisplayCriteriaMatchingEnabled,
@@ -337,14 +319,15 @@ open class KSOptions {
             if KSOptions.displayCriteriaFormatDescriptionEnabled, #available(tvOS 17.0, *) {
                 displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, formatDescription: formatDescription)
             } else {
-//                displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: formatDescription.dynamicRange.rawValue)
+                let dynamicRange = isDovi ? .dolbyVision : formatDescription.dynamicRange
+//                displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: dynamicRange.rawValue)
             }
         }
         #endif
     }
 
 //    private var lastMediaTime = CACurrentMediaTime()
-    open func videoClockSync(main: KSClock, nextVideoTime: TimeInterval, fps: Float) -> ClockProcessType {
+    open func videoClockSync(main: KSClock, nextVideoTime: TimeInterval, fps: Float, frameCount: Int) -> ClockProcessType {
         var desire = main.getTime() - videoDelay
         #if !os(macOS)
         desire -= AVAudioSession.sharedInstance().outputLatency
@@ -358,19 +341,33 @@ open class KSOptions {
             return .remain
         } else {
             if diff < -4 / Double(fps) {
-                KSLog("[video] video delay=\(diff), clock=\(desire), delay count=\(videoClockDelayCount)")
                 videoClockDelayCount += 1
-                if diff < -8, videoClockDelayCount % 100 == 0 {
-                    KSLog("[video] video delay seek video track")
-                    return .seek
-                }
-                if diff < -1, videoClockDelayCount % 10 == 0 {
-                    return .flush
-                }
-                if videoClockDelayCount % 2 == 0 {
-                    return .dropNext
+                let log = "[video] video delay=\(diff), clock=\(desire), delay count=\(videoClockDelayCount), frameCount=\(frameCount)"
+                if frameCount == 1 {
+                    if diff < -1, videoClockDelayCount % 10 == 0 {
+                        KSLog("\(log) drop gop Packet")
+                        return .dropGOPPacket
+                    } else if videoClockDelayCount % 5 == 0 {
+                        KSLog("\(log) drop next frame")
+                        return .dropNextFrame
+                    } else {
+                        return .next
+                    }
                 } else {
-                    return .next
+                    if diff < -8, videoClockDelayCount % 100 == 0 {
+                        KSLog("\(log) seek video track")
+                        return .seek
+                    }
+                    if diff < -1, videoClockDelayCount % 10 == 0 {
+                        KSLog("\(log) flush video track")
+                        return .flush
+                    }
+                    if videoClockDelayCount % 2 == 0 {
+                        KSLog("\(log) drop next frame")
+                        return .dropNextFrame
+                    } else {
+                        return .next
+                    }
                 }
             } else {
                 videoClockDelayCount = 0
@@ -408,14 +405,18 @@ open class KSOptions {
         #endif
     }
 
-    open func liveAdaptivePlaybackRate(loadingState: LoadingState) -> Float? {
-        if loadingState.loadedTime > preferredForwardBufferDuration + 4 {
-            return 1.2
-        } else if loadingState.loadedTime < preferredForwardBufferDuration {
-            return 0.8
-        } else {
-            return 1
-        }
+    open func liveAdaptivePlaybackRate(loadingState _: LoadingState) -> Float? {
+        nil
+//        if loadingState.isFirst {
+//            return nil
+//        }
+//        if loadingState.loadedTime > preferredForwardBufferDuration + 5 {
+//            return 1.2
+//        } else if loadingState.loadedTime < preferredForwardBufferDuration / 2 {
+//            return 0.8
+//        } else {
+//            return 1
+//        }
     }
 }
 
@@ -472,40 +473,41 @@ public extension KSOptions {
     }
 
     #if !os(macOS)
-    static func isSpatialAudioEnabled() -> Bool {
+    static func isSpatialAudioEnabled(channelCount: AVAudioChannelCount) -> Bool {
         if #available(tvOS 15.0, iOS 15.0, *) {
             let isSpatialAudioEnabled = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.isSpatialAudioEnabled }
-            try? AVAudioSession.sharedInstance().setSupportsMultichannelContent(isSpatialAudioEnabled)
+            try? AVAudioSession.sharedInstance().setSupportsMultichannelContent(channelCount > 2)
             return isSpatialAudioEnabled
         } else {
             return false
         }
     }
 
-    static func outputNumberOfChannels(channelCount: AVAudioChannelCount, isUseAudioRenderer: Bool) -> AVAudioChannelCount {
+    static func outputNumberOfChannels(channelCount: AVAudioChannelCount) -> AVAudioChannelCount {
         let maximumOutputNumberOfChannels = AVAudioChannelCount(AVAudioSession.sharedInstance().maximumOutputNumberOfChannels)
         let preferredOutputNumberOfChannels = AVAudioChannelCount(AVAudioSession.sharedInstance().preferredOutputNumberOfChannels)
-        KSLog("[audio] maximumOutputNumberOfChannels: \(maximumOutputNumberOfChannels)")
-        KSLog("[audio] preferredOutputNumberOfChannels: \(preferredOutputNumberOfChannels)")
-        setAudioSession()
-        let isSpatialAudioEnabled = isSpatialAudioEnabled()
-        KSLog("[audio] isSpatialAudioEnabled: \(isSpatialAudioEnabled)")
-        KSLog("[audio] isUseAudioRenderer: \(isUseAudioRenderer)")
+        let isSpatialAudioEnabled = isSpatialAudioEnabled(channelCount: channelCount)
+        let isUseAudioRenderer = KSOptions.audioPlayerType == AudioRendererPlayer.self
+        KSLog("[audio] maximumOutputNumberOfChannels: \(maximumOutputNumberOfChannels), preferredOutputNumberOfChannels: \(preferredOutputNumberOfChannels), isSpatialAudioEnabled: \(isSpatialAudioEnabled), isUseAudioRenderer: \(isUseAudioRenderer) ")
+        let maxRouteChannelsCount = AVAudioSession.sharedInstance().currentRoute.outputs.compactMap {
+            $0.channels?.count
+        }.max() ?? 2
+        KSLog("[audio] currentRoute max channels: \(maxRouteChannelsCount)")
         var channelCount = channelCount
         if channelCount > 2 {
             let minChannels = min(maximumOutputNumberOfChannels, channelCount)
-            if minChannels > preferredOutputNumberOfChannels {
-                try? AVAudioSession.sharedInstance().setPreferredOutputNumberOfChannels(Int(minChannels))
-                KSLog("[audio] set preferredOutputNumberOfChannels: \(minChannels)")
-            }
+            try? AVAudioSession.sharedInstance().setPreferredOutputNumberOfChannels(Int(minChannels))
+            KSLog("[audio] set preferredOutputNumberOfChannels: \(minChannels)")
+            // iOS 有空间音频功能，所以不用处理
+            #if os(tvOS) || targetEnvironment(simulator)
             if !(isUseAudioRenderer && isSpatialAudioEnabled) {
-                let maxRouteChannelsCount = AVAudioSession.sharedInstance().currentRoute.outputs.compactMap {
-                    $0.channels?.count
-                }.max() ?? 2
-                KSLog("[audio] currentRoute max channels: \(maxRouteChannelsCount)")
-                channelCount = AVAudioChannelCount(min(AVAudioSession.sharedInstance().outputNumberOfChannels, maxRouteChannelsCount))
+                // 不要用maxRouteChannelsCount来panduan，有可能会不准。导致多音道设备也返回2（一开始播放一个2声道，就容易出现）
+//                channelCount = AVAudioChannelCount(min(AVAudioSession.sharedInstance().outputNumberOfChannels, maxRouteChannelsCount))
+                channelCount = AVAudioChannelCount(AVAudioSession.sharedInstance().outputNumberOfChannels)
             }
+            #endif
         } else {
+            try? AVAudioSession.sharedInstance().setPreferredOutputNumberOfChannels(2)
             channelCount = 2
         }
         KSLog("[audio] outputNumberOfChannels: \(AVAudioSession.sharedInstance().outputNumberOfChannels)")
