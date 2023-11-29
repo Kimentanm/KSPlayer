@@ -552,9 +552,8 @@ class AVMediaPlayerTrack: MediaPlayerTrack {
         // swiftlint:disable force_cast
         formatDescription = (track.assetTrack?.formatDescriptions.first as! CMFormatDescription)
         // swiftlint:enable force_cast
-        #endif
-        channelLayoutDescribe = ""
         description = (formatDescription?.mediaSubType ?? .boxed).rawValue.string
+        channelLayoutDescribe = ""
         #if os(xrOS)
         Task {
             isPlayable = await (try? track.assetTrack?.load(.isPlayable)) ?? false
