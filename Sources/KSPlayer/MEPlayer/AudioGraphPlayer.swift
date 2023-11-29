@@ -153,6 +153,10 @@ public final class AudioGraphPlayer: AudioOutput, AudioDynamicsProcessor {
             return
         }
         sourceNodeAudioFormat = audioFormat
+        #if !os(macOS)
+        try? AVAudioSession.sharedInstance().setPreferredOutputNumberOfChannels(Int(audioFormat.channelCount))
+        KSLog("[audio] set preferredOutputNumberOfChannels: \(audioFormat.channelCount)")
+        #endif
         sampleSize = audioFormat.sampleSize
         var audioStreamBasicDescription = audioFormat.formatDescription.audioStreamBasicDescription
         let audioStreamBasicDescriptionSize = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
@@ -175,6 +179,11 @@ public final class AudioGraphPlayer: AudioOutput, AudioDynamicsProcessor {
                                      kAudioUnitScope_Output, 0,
                                      &audioStreamBasicDescription,
                                      audioStreamBasicDescriptionSize)
+                AudioUnitSetProperty(unit,
+                                     kAudioUnitProperty_AudioChannelLayout,
+                                     kAudioUnitScope_Output, 0,
+                                     channelLayout,
+                                     UInt32(MemoryLayout<AudioChannelLayout>.size))
             }
             if unit == audioUnitForTimePitch {
                 var inputCallbackStruct = renderCallbackStruct()

@@ -48,7 +48,7 @@ public struct KSVideoPlayerView: View {
             KSVideoPlayer(coordinator: playerCoordinator, url: url, options: options)
                 .onStateChanged { playerLayer, state in
                     if state == .readyToPlay {
-                        if let movieTitle = playerLayer.player.metadata["title"] {
+                        if let movieTitle = playerLayer.player.dynamicInfo?.metadata["title"] {
                             title = movieTitle
                         }
                     }
@@ -143,24 +143,24 @@ public struct KSVideoPlayerView: View {
             }
         }
         .preferredColorScheme(.dark)
-        .background(Color.black)
         .tint(.white)
         .persistentSystemOverlays(.hidden)
         .toolbar(playerCoordinator.isMaskShow ? .visible : .hidden, for: .automatic)
-        .onKeyPressLeftArrow {
-            playerCoordinator.skip(interval: -15)
-        }
-        .onKeyPressRightArrow {
-            playerCoordinator.skip(interval: 15)
-        }
-        .onKeyPressSapce {
-            if playerCoordinator.state.isPlaying {
-                playerCoordinator.playerLayer?.pause()
-            } else {
-                playerCoordinator.playerLayer?.play()
+        #if !os(xrOS)
+            .onKeyPressLeftArrow {
+                playerCoordinator.skip(interval: -15)
             }
-        }
-
+            .onKeyPressRightArrow {
+                playerCoordinator.skip(interval: 15)
+            }
+            .onKeyPressSapce {
+                if playerCoordinator.state.isPlaying {
+                    playerCoordinator.playerLayer?.pause()
+                } else {
+                    playerCoordinator.playerLayer?.play()
+                }
+            }
+        #endif
         #if os(macOS)
         .onTapGesture(count: 2) {
             guard let view = playerCoordinator.playerLayer else {
@@ -257,7 +257,7 @@ extension View {
     }
 }
 
-@available(iOS 15, tvOS 16, macOS 12, *)
+@available(iOS 16, tvOS 16, macOS 13, *)
 struct VideoControllerView: View {
     @ObservedObject
     fileprivate var config: KSVideoPlayer.Coordinator
@@ -374,7 +374,8 @@ extension EventModifiers {
 
 @available(iOS 16, tvOS 16, macOS 13, *)
 struct VideoSubtitleView: View {
-    @ObservedObject fileprivate var model: SubtitleModel
+    @ObservedObject
+    fileprivate var model: SubtitleModel
     var body: some View {
         ZStack {
             ForEach(model.parts) { part in
@@ -440,7 +441,7 @@ fileprivate extension SubtitlePart {
     }
 }
 
-@available(iOS 15, tvOS 16, macOS 12, *)
+@available(iOS 16, tvOS 16, macOS 13, *)
 struct VideoSettingView: View {
     @ObservedObject
     fileprivate var config: KSVideoPlayer.Coordinator
@@ -474,9 +475,6 @@ struct VideoSettingView: View {
                 } set: { value in
                     if let track = audioTracks.first(where: { $0.trackID == value }) {
                         config.playerLayer?.player.select(track: track)
-                        config.playerLayer?.player.isMuted = false
-                    } else {
-                        config.playerLayer?.player.isMuted = true
                     }
                 }) {
                     ForEach(audioTracks, id: \.trackID) { track in
@@ -493,22 +491,25 @@ struct VideoSettingView: View {
                 } set: { value in
                     if let track = videoTracks.first(where: { $0.trackID == value }) {
                         config.playerLayer?.player.select(track: track)
-                        config.playerLayer?.options.videoDisable = false
-                    } else {
-                        config.playerLayer?.options.videoDisable = true
                     }
                 }) {
                     ForEach(videoTracks, id: \.trackID) { track in
                         Text(track.description).tag(track.trackID as Int32?)
                     }
                 } label: {
-                    Label("Video track", systemImage: "video.fill")
+                    Label("Video Track", systemImage: "video.fill")
                 }
+                LabeledContent("Video Type", value: (videoTracks.first { $0.isEnabled }?.dynamicRange ?? .sdr).description)
             }
             Picker(selection: Binding {
                 subtitleModel.selectedSubtitleInfo?.subtitleID
             } set: { value in
-                subtitleModel.selectedSubtitleInfo = subtitleModel.subtitleInfos.first { $0.subtitleID == value }
+                let info = subtitleModel.subtitleInfos.first { $0.subtitleID == value }
+                subtitleModel.selectedSubtitleInfo = info
+                if let info = info as? MediaPlayerTrack {
+                    // 因为图片字幕想要实时的显示，那就需要seek。所以需要走select track
+                    config.playerLayer?.player.select(track: info)
+                }
             }) {
                 Text("Off").tag(nil as String?)
                 ForEach(subtitleModel.subtitleInfos, id: \.subtitleID) { track in
@@ -522,22 +523,36 @@ struct VideoSettingView: View {
             Button("Search Sutitle") {
                 subtitleModel.searchSubtitle(query: subtitleTitle, languages: ["zh-cn"])
             }
-            Text("Stream Type: \((videoTracks?.first { $0.isEnabled }?.fieldOrder ?? .progressive).description)")
-            Text("Audio bitrate: \(config.playerLayer?.player.audioBitrate ?? 0) b/s")
-            Text("Video bitrate: \(config.playerLayer?.player.videoBitrate ?? 0) b/s")
+            LabeledContent("Stream Type", value: (videoTracks?.first { $0.isEnabled }?.fieldOrder ?? .progressive).description)
+            if let dynamicInfo = config.playerLayer?.player.dynamicInfo {
+                DynamicInfoView(dynamicInfo: dynamicInfo)
+            }
             if let fileSize = config.playerLayer?.player.fileSize, fileSize > 0 {
-                Text("File Size: \(String(format: "%.1f", fileSize / 1_000_000))MB")
+                LabeledContent("File Size", value: fileSize.kmFormatted + "B")
             }
         }
-        .padding()
         #if os(macOS) || targetEnvironment(macCatalyst)
-            .toolbar {
-                Button("Done") {
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
+        .toolbar {
+            Button("Done") {
+                dismiss()
             }
+            .keyboardShortcut(.defaultAction)
+        }
         #endif
+    }
+}
+
+@available(iOS 16, tvOS 16, macOS 13, *)
+public struct DynamicInfoView: View {
+    @ObservedObject
+    fileprivate var dynamicInfo: DynamicInfo
+    public var body: some View {
+        LabeledContent("Display FPS", value: dynamicInfo.displayFPS, format: .number)
+        LabeledContent("Audio Video sync", value: dynamicInfo.audioVideoSyncDiff, format: .number)
+        LabeledContent("Dropped Frames", value: dynamicInfo.droppedVideoFrameCount + dynamicInfo.droppedVideoPacketCount, format: .number)
+        LabeledContent("Bytes Read", value: dynamicInfo.bytesRead.kmFormatted + "B")
+        LabeledContent("Audio bitrate", value: dynamicInfo.audioBitrate.kmFormatted + "bps")
+        LabeledContent("Video bitrate", value: dynamicInfo.videoBitrate.kmFormatted + "bps")
     }
 }
 
@@ -555,6 +570,9 @@ public struct PlatformView<Content: View>: View {
         Form {
             content()
         }
+        #if os(macOS)
+        .padding()
+        #endif
         #endif
     }
 

@@ -18,7 +18,7 @@ English | [简体中文](./README_CN.md)
 - [x] iOS, tvOS, macOS, visionOS, Mac Catalyst, Apple Silicon M1, SwiftUI.
 - [x] Multiple audio/video tracks.
 - [x] hardware accelerator.
-- [x] 4k/HDR
+- [x] 4k/HDR/HDR10/HDR10+/Dolby Vision
 - [x] text subtitle/Closed Captions/image subtitle(dvbsub/dvdsub/pgssub)
 - [x] Picture in Picture
 - [x] Record video
@@ -55,6 +55,7 @@ target 'ProjectName' do
     pod 'KSPlayer',:git => 'https://github.com/kingslay/KSPlayer.git', :branch => 'develop'
     pod 'FFmpegKit',:git => 'https://github.com/kingslay/FFmpegKit.git', :branch => 'main'
     pod 'OpenSSL',:git => 'https://github.com/kingslay/FFmpegKit.git', :branch => 'main'
+    pod 'Libass',:git => 'https://github.com/kingslay/FFmpegKit.git', :branch => 'main'
 end
 ```
 
@@ -266,15 +267,17 @@ Any contributing and pull requests are warmly welcome. However, before you plan 
 Open-source projects cannot live long without your help. If you find KSPlayer to be useful, please consider supporting this 
 project by becoming a sponsor. 
 
-Thanks to [cdguy](https://github.com/cdguy) [UnknownCoder807](https://github.com/UnknownCoder807) [skrew](https://github.com/skrew) and LillyPlayer community for sponsoring a LG S95QR Sound Bar 
-
-Thanks to [skrew](https://github.com/skrew) and LillyPlayer community for sponsoring a 2022 Apple TV 4K
-
 Become a sponsor through [GitHub Sponsors](https://github.com/sponsors/kingslay/). :heart:
 
 Your user icon or company logo shows up this with a link to your home page. 
 
-[UnknownCoder807](https://github.com/UnknownCoder807)   [skrew](https://github.com/skrew)   [Kimentanm](https://github.com/Kimentanm)   [nakiostudio](https://github.com/nakiostudio)   
+[UnknownCoder807](https://github.com/UnknownCoder807)   [skrew](https://github.com/skrew)   [Kimentanm](https://github.com/Kimentanm)   [nakiostudio](https://github.com/nakiostudio)    [byMohamedali](https://github.com/byMohamedali)
+
+Thanks to [nightfall708](https://github.com/nightfall708) for sponsoring a mac mini
+
+Thanks to [cdguy](https://github.com/cdguy) [UnknownCoder807](https://github.com/UnknownCoder807) [skrew](https://github.com/skrew) and LillyPlayer community for sponsoring a LG S95QR Sound Bar 
+
+Thanks to [skrew](https://github.com/skrew) and LillyPlayer community for sponsoring a 2022 Apple TV 4K
 
 ## Communication
 

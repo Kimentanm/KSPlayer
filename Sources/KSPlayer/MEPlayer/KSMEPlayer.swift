@@ -236,7 +236,7 @@ extension KSMEPlayer: MEPlayerDelegate {
             playableTime = currentPlaybackTime + loadingState.loadedTime
         }
         if loadState == .playable {
-            if !loadingState.isEndOfFile, loadingState.frameCount == 0, loadingState.packetCount == 0 || !(loadingState.isFirst || loadingState.isSeek) {
+            if !loadingState.isEndOfFile, loadingState.frameCount == 0, loadingState.packetCount == 0 {
                 loadState = .loading
                 if playbackState == .playing {
                     runInMainqueue { [weak self] in
@@ -326,7 +326,7 @@ extension KSMEPlayer: MediaPlayerProtocol {
 
     public var currentPlaybackTime: TimeInterval {
         get {
-            playerItem.currentPlaybackTime - playerItem.startTime
+            playerItem.currentPlaybackTime
         }
         set {
             seek(time: newValue) { _ in }
@@ -339,9 +339,9 @@ extension KSMEPlayer: MediaPlayerProtocol {
 
     public var seekable: Bool { playerItem.seekable }
 
-    public var videoBitrate: Int { playerItem.videoBitrate }
-
-    public var audioBitrate: Int { playerItem.audioBitrate }
+    public var dynamicInfo: DynamicInfo? {
+        playerItem.dynamicInfo
+    }
 
     public func seek(time: TimeInterval, completion: @escaping ((Bool) -> Void)) {
         let time = max(time, 0)
@@ -356,7 +356,7 @@ extension KSMEPlayer: MediaPlayerProtocol {
             seekTime = time
         }
         audioOutput.flush()
-        playerItem.seek(time: seekTime + playerItem.startTime) { [weak self] result in
+        playerItem.seek(time: seekTime) { [weak self] result in
             guard let self else { return }
             if result {
                 if let controlTimebase = self.videoOutput?.displayLayer.controlTimebase {
@@ -555,17 +555,5 @@ extension KSMEPlayer: DisplayLayerDelegate {
             // 更改contentSource会直接crash
 //            pipController?.contentSource = contentSource
         }
-    }
-}
-
-// MARK: - public functions
-
-public extension KSMEPlayer {
-    var metadata: [String: String] {
-        playerItem.metadata
-    }
-
-    var bytesRead: Int64 {
-        playerItem.bytesRead
     }
 }
