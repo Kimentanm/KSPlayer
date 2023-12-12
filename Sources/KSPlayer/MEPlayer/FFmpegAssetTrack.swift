@@ -35,6 +35,7 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
     public let formatDescription: CMFormatDescription?
     var closedCaptionsTrack: FFmpegAssetTrack?
     let isConvertNALSize: Bool
+    var seekByBytes = false
     public let channelLayoutDescribe: String
     public var description: String {
         var description = codecName
@@ -58,7 +59,9 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
         if bitRate > 0 {
             description += ", \(bitRate.kmFormatted)bps"
         }
-
+        if let language {
+            description += "(\(language))"
+        }
         return description
     }
 
@@ -94,7 +97,7 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
             }
         }
 
-        if let value = metadata["language"] {
+        if let value = metadata["language"], value != "und" {
             language = Locale.current.localizedString(forLanguageCode: value)
         } else {
             language = nil
@@ -103,9 +106,6 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
             name = value
         } else {
             name = codecName
-            if let language {
-                name += "(\(language))"
-            }
         }
         // AV_DISPOSITION_DEFAULT
         if mediaType == .subtitle {
@@ -242,8 +242,8 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
         trackID = 0
     }
 
-    func ceateContext(options: KSOptions) throws -> UnsafeMutablePointer<AVCodecContext> {
-        try codecpar.ceateContext(options: options)
+    func createContext(options: KSOptions) throws -> UnsafeMutablePointer<AVCodecContext> {
+        try codecpar.createContext(options: options)
     }
 
     public var isEnabled: Bool {
