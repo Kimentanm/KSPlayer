@@ -512,20 +512,20 @@ extension KSPlayerLayer {
 
     public func registerRemoteControllEvent() {
         let remoteCommand = MPRemoteCommandCenter.shared()
-        remoteCommand.playCommand.addTarget { [weak self] _ in
-            guard let self else {
-                return .commandFailed
-            }
-            self.play()
-            return .success
-        }
-        remoteCommand.pauseCommand.addTarget { [weak self] _ in
-            guard let self else {
-                return .commandFailed
-            }
-            self.pause()
-            return .success
-        }
+//        remoteCommand.playCommand.addTarget { [weak self] _ in
+//            guard let self else {
+//                return .commandFailed
+//            }
+//            self.play()
+//            return .success
+//        }
+//        remoteCommand.pauseCommand.addTarget { [weak self] _ in
+//            guard let self else {
+//                return .commandFailed
+//            }
+//            self.pause()
+//            return .success
+//        }
         remoteCommand.togglePlayPauseCommand.addTarget { [weak self] _ in
             guard let self else {
                 return .commandFailed

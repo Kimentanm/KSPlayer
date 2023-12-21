@@ -867,7 +867,7 @@ extension VideoPlayerView {
     }
 
     @objc
-    private func swipedDown(_: UISwipeGestureRecognizer) {
+    open func swipedDown(_: UISwipeGestureRecognizer) {
         guard let playerLayer, playerLayer.state.isPlaying else { return }
         if isMaskShow == true {
             isMaskShow = false
