@@ -462,7 +462,7 @@ extension VideoPlayerView {
             }
         }
         toolBar.srtButton.setMenu(title: NSLocalizedString("subtitle", comment: ""), current: srtControl.selectedSubtitleInfo, list: srtControl.subtitleInfos, addDisabled: true) { value in
-            value.name
+            "\(value)"
         } completition: { [weak self] value in
             guard let self else { return }
             self.srtControl.selectedSubtitleInfo = value
@@ -644,7 +644,7 @@ extension VideoPlayerView {
         subtitleLabel.backingLayer?.shadowRadius = 1.0
         subtitleLabel.backingLayer?.shouldRasterize = true
         updateSrt()
-        subtitleBackView.contentMode = .scaleAspectFit
+//        subtitleBackView.contentMode = .scaleAspectFit
         subtitleBackView.cornerRadius = 2
         subtitleBackView.addSubview(subtitleLabel)
         subtitleBackView.isHidden = true
