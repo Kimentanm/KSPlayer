@@ -668,7 +668,7 @@ extension VideoPlayerView {
     private func autoFadeOutViewWithAnimation() {
         delayItem?.cancel()
         // 播放的时候才自动隐藏
-        guard toolBar.playButton.isSelected else { return }
+//        guard toolBar.playButton.isSelected else { return }
         delayItem = DispatchWorkItem { [weak self] in
             self?.isMaskShow = false
         }
