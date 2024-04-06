@@ -206,7 +206,7 @@ extension MEPlayerItem {
 //        }
         setHttpProxy()
         var avOptions = options.formatContextOptions.avOptions
-        let urlString: String
+        var urlString: String
         if url.isFileURL {
             urlString = url.path
         } else {
@@ -216,6 +216,7 @@ extension MEPlayerItem {
                 urlString = "async:cache:" + url.absoluteString
             }
         }
+        urlString = urlString.replacingOccurrences(of: "%5B", with: "[").replacingOccurrences(of: "%5D", with: "]")
         // 如果要自定义协议的话，那就用avio_alloc_context，对formatCtx.pointee.pb赋值
         var result = avformat_open_input(&self.formatCtx, urlString, nil, &avOptions)
         av_dict_free(&avOptions)
