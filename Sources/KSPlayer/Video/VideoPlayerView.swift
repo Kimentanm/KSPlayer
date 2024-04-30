@@ -731,7 +731,7 @@ extension VideoPlayerView {
             seekToView.heightAnchor.constraint(equalToConstant: 40),
             replayButton.centerYAnchor.constraint(equalTo: centerYAnchor),
             replayButton.centerXAnchor.constraint(equalTo: centerXAnchor),
-            lockButton.leadingAnchor.constraint(equalTo: safeLeadingAnchor, constant: 22),
+            lockButton.trailingAnchor.constraint(equalTo: safeTrailingAnchor, constant: -22),
             lockButton.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
 
