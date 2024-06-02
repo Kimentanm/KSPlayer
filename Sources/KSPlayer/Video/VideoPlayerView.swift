@@ -485,7 +485,7 @@ public extension VideoPlayerView {
         guard let tracks = playerLayer?.player.tracks(mediaType: type == .audioSwitch ? .audio : .video) else {
             return
         }
-        let alertController = UIAlertController(title: NSLocalizedString(type == .audioSwitch ? "switch audio" : "switch video", comment: ""), message: nil, preferredStyle: preferredStyle())
+        let alertController = UIAlertController(title: NSLocalizedString(type == .audioSwitch ? "切换音轨" : "切换视轨", comment: ""), message: nil, preferredStyle: preferredStyle())
         for track in tracks {
             let isEnabled = track.isEnabled
             var title = track.name
@@ -502,7 +502,7 @@ public extension VideoPlayerView {
                 action.setValue(isEnabled, forKey: "checked")
             }
         }
-        alertController.addAction(UIAlertAction(title: NSLocalizedString("cancel", comment: ""), style: .cancel, handler: nil))
+        alertController.addAction(UIAlertAction(title: NSLocalizedString("关闭", comment: ""), style: .cancel, handler: nil))
         viewController?.present(alertController, animated: true, completion: nil)
     }
 
@@ -520,7 +520,7 @@ public extension VideoPlayerView {
                 action.setValue(true, forKey: "checked")
             }
         }
-        alertController.addAction(UIAlertAction(title: NSLocalizedString("cancel", comment: ""), style: .cancel, handler: nil))
+        alertController.addAction(UIAlertAction(title: NSLocalizedString("关闭", comment: ""), style: .cancel, handler: nil))
         viewController?.present(alertController, animated: true, completion: nil)
     }
 
@@ -528,7 +528,7 @@ public extension VideoPlayerView {
         let availableSubtitles = srtControl.subtitleInfos
         guard !availableSubtitles.isEmpty else { return }
 
-        let alertController = UIAlertController(title: NSLocalizedString("subtitle", comment: ""),
+        let alertController = UIAlertController(title: NSLocalizedString("字幕", comment: ""),
                                                 message: nil,
                                                 preferredStyle: preferredStyle())
 
@@ -554,7 +554,7 @@ public extension VideoPlayerView {
             }
         }
 
-        alertController.addAction(UIAlertAction(title: NSLocalizedString("cancel", comment: ""), style: .cancel, handler: nil))
+        alertController.addAction(UIAlertAction(title: NSLocalizedString("关闭", comment: ""), style: .cancel, handler: nil))
         viewController?.present(alertController, animated: true, completion: nil)
     }
 
@@ -722,7 +722,7 @@ extension VideoPlayerView {
             bottomMaskView.bottomAnchor.constraint(equalTo: bottomAnchor),
             bottomMaskView.leadingAnchor.constraint(equalTo: leadingAnchor),
             bottomMaskView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            bottomMaskView.heightAnchor.constraint(equalToConstant: 105),
+            bottomMaskView.heightAnchor.constraint(equalToConstant: 300),
             loadingIndector.centerYAnchor.constraint(equalTo: centerYAnchor),
             loadingIndector.centerXAnchor.constraint(equalTo: centerXAnchor),
             seekToView.centerYAnchor.constraint(equalTo: centerYAnchor),
