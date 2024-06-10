@@ -281,7 +281,9 @@ open class VideoPlayerView: PlayerView {
                     if self.srtControl.selectedSubtitleInfo == nil, layer.options.autoSelectEmbedSubtitle {
                         self.srtControl.selectedSubtitleInfo = self.srtControl.subtitleInfos.first { $0.isEnabled }
                     }
+                    #if !os(tvOS)
                     self.toolBar.srtButton.isHidden = self.srtControl.subtitleInfos.isEmpty
+                    #endif
                     if #available(iOS 14.0, tvOS 15.0, *) {
                         self.buildMenusForButtons()
                     }
@@ -490,7 +492,9 @@ public extension VideoPlayerView {
             let isEnabled = track.isEnabled
             var title = track.name
             if type == .videoSwitch {
-                title += " \(track.naturalSize.width)x\(track.naturalSize.height)"
+                title = "#\(track.trackID) \(track.name),\(track.naturalSize.width)x\(track.naturalSize.height)"
+            } else {
+                title = "#\(track.trackID) \(track.channelLayoutDescribe),\(track.audioStreamBasicDescription?.mChannelsPerFrame ?? 0)ch,\(((track.audioStreamBasicDescription?.mSampleRate ?? 0) / 1000).cleanZero)kHz"
             }
             let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
                 guard let self, !isEnabled else { return }
@@ -544,7 +548,7 @@ public extension VideoPlayerView {
         }
 
         availableSubtitles.enumerated().forEach { _, srt in
-            let action = UIAlertAction(title: srt.name, style: .default) { [weak self] _ in
+            let action = UIAlertAction(title: "\(srt)", style: .default) { [weak self] _ in
                 self?.srtControl.selectedSubtitleInfo = srt
             }
             alertController.addAction(action)
