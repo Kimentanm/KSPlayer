@@ -8,15 +8,19 @@
 import AVFoundation
 import FFmpegKit
 import Libavformat
+
 public class FFmpegAssetTrack: MediaPlayerTrack {
     public private(set) var trackID: Int32 = 0
     public let codecName: String
     public var name: String = ""
-    public private(set) var language: String?
-    public private(set) var nominalFrameRate: Float = 0
+    public private(set) var languageCode: String?
+    public var nominalFrameRate: Float = 0
+    public private(set) var avgFrameRate = Timebase.defaultValue
+    public private(set) var realFrameRate = Timebase.defaultValue
     public private(set) var bitRate: Int64 = 0
     public let mediaType: AVFoundation.AVMediaType
     public let formatName: String?
+    public let bitDepth: Int32
     private var stream: UnsafeMutablePointer<AVStream>?
     var startTime = CMTime.zero
     var codecpar: AVCodecParameters
@@ -27,7 +31,7 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
     // subtitle
     public let isImageSubtitle: Bool
     public var delay: TimeInterval = 0
-    weak var subtitle: SyncPlayerItemTrack<SubtitleFrame>?
+    var subtitle: SyncPlayerItemTrack<SubtitleFrame>?
     // video
     public private(set) var rotation: Int16 = 0
     public var dovi: DOVIDecoderConfigurationRecord?
@@ -78,8 +82,12 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
         if timebase.num <= 0 || timebase.den <= 0 {
             timebase = Timebase(num: 1, den: 1000)
         }
-        startTime = timebase.cmtime(for: stream.pointee.start_time)
+        if stream.pointee.start_time != Int64.min {
+            startTime = timebase.cmtime(for: stream.pointee.start_time)
+        }
         self.timebase = timebase
+        avgFrameRate = Timebase(stream.pointee.avg_frame_rate)
+        realFrameRate = Timebase(stream.pointee.r_frame_rate)
         if mediaType == .audio {
             var frameSize = codecpar.frame_size
             if frameSize < 1 {
@@ -87,25 +95,24 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
             }
             nominalFrameRate = max(Float(codecpar.sample_rate / frameSize), 48)
         } else {
-            let frameRate = stream.pointee.avg_frame_rate
             if stream.pointee.duration > 0, stream.pointee.nb_frames > 0, stream.pointee.nb_frames != stream.pointee.duration {
                 nominalFrameRate = Float(stream.pointee.nb_frames) * Float(timebase.den) / Float(stream.pointee.duration) * Float(timebase.num)
-            } else if frameRate.den > 0, frameRate.num > 0 {
-                nominalFrameRate = Float(frameRate.num) / Float(frameRate.den)
+            } else if avgFrameRate.den > 0, avgFrameRate.num > 0 {
+                nominalFrameRate = Float(avgFrameRate.num) / Float(avgFrameRate.den)
             } else {
                 nominalFrameRate = 24
             }
         }
 
         if let value = metadata["language"], value != "und" {
-            language = Locale.current.localizedString(forLanguageCode: value)
+            languageCode = value
         } else {
-            language = nil
+            languageCode = nil
         }
         if let value = metadata["title"] {
             name = value
         } else {
-            name = codecName
+            name = languageCode ?? codecName
         }
         // AV_DISPOSITION_DEFAULT
         if mediaType == .subtitle {
@@ -139,6 +146,7 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
             mediaType = .audio
             audioDescriptor = AudioDescriptor(codecpar: codecpar)
             isConvertNALSize = false
+            bitDepth = 0
             let layout = codecpar.ch_layout
             let channelsPerFrame = UInt32(layout.nb_channels)
             let sampleFormat = AVSampleFormat(codecpar.format)
@@ -201,6 +209,7 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
                 isConvertNALSize = false
             }
             let format = AVPixelFormat(rawValue: codecpar.format)
+            bitDepth = format.bitDepth
             let fullRange = codecpar.color_range == AVCOL_RANGE_JPEG
             let dic: NSMutableDictionary = [
                 kCVImageBufferChromaLocationBottomFieldKey: kCVImageBufferChromaLocation_Left,
@@ -231,9 +240,11 @@ public class FFmpegAssetTrack: MediaPlayerTrack {
             mediaType = .subtitle
             audioDescriptor = nil
             formatName = nil
+            bitDepth = 0
             isConvertNALSize = false
             _ = CMFormatDescriptionCreate(allocator: kCFAllocatorDefault, mediaType: kCMMediaType_Subtitle, mediaSubType: codecType.rawValue, extensions: nil, formatDescriptionOut: &formatDescriptionOut)
         } else {
+            bitDepth = 0
             return nil
         }
         formatDescription = formatDescriptionOut

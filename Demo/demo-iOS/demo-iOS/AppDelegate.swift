@@ -25,7 +25,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UISplitViewControllerDele
         KSOptions.isAccurateSeek = true
 //        KSOptions.isLoopPlay = true
         if UIDevice.current.userInterfaceIdiom == .phone {
-            window.rootViewController = UINavigationController(rootViewController: RootViewController())
+            window.rootViewController = UINavigationController(rootViewController: MasterViewController())
         } else if UIDevice.current.userInterfaceIdiom == .tv {
             window.rootViewController = UINavigationController(rootViewController: MasterViewController())
         } else {
@@ -72,8 +72,8 @@ class CustomVideoPlayerView: VideoPlayerView {
             print(layer.player.naturalSize)
             // list the all subtitles
             let subtitleInfos = srtControl.subtitleInfos
-            subtitleInfos.forEach {
-                print($0.name)
+            for subtitleInfo in subtitleInfos {
+                print(subtitleInfo.name)
             }
             srtControl.selectedSubtitleInfo = subtitleInfos.first
             for track in layer.player.tracks(mediaType: .audio) {
@@ -94,36 +94,7 @@ class CustomVideoPlayerView: VideoPlayerView {
     }
 }
 
-class MEOptions: KSOptions {
-    override func process(assetTrack: some MediaPlayerTrack) {
-        if assetTrack.mediaType == .video {
-            if [FFmpegFieldOrder.bb, .bt, .tt, .tb].contains(assetTrack.fieldOrder) {
-                videoFilters.append("yadif_videotoolbox=mode=0:parity=-1:deint=1")
-                asynchronousDecompression = false
-            }
-            #if os(tvOS) || os(xrOS)
-            runInMainqueue { [weak self] in
-                guard let self else {
-                    return
-                }
-                if let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
-                   displayManager.isDisplayCriteriaMatchingEnabled
-                {
-                    let refreshRate = assetTrack.nominalFrameRate
-                    if KSOptions.displayCriteriaFormatDescriptionEnabled, let formatDescription = assetTrack.formatDescription, #available(tvOS 17.0, *) {
-                        displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, formatDescription: formatDescription)
-                    } else {
-                        if let dynamicRange = assetTrack.dynamicRange {
-                            let videoDynamicRange = self.availableDynamicRange(dynamicRange) ?? dynamicRange
-                            displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: videoDynamicRange.rawValue)
-                        }
-                    }
-                }
-            }
-            #endif
-        }
-    }
-}
+class MEOptions: KSOptions {}
 
 var testObjects: [KSPlayerResource] = {
     var objects = [KSPlayerResource]()

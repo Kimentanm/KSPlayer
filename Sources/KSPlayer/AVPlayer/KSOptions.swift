@@ -6,7 +6,11 @@
 //
 
 import AVFoundation
+#if os(tvOS) || os(xrOS)
+import DisplayCriteria
+#endif
 import OSLog
+
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -22,8 +26,6 @@ open class KSOptions {
     public var isAccurateSeek = KSOptions.isAccurateSeek
     /// Applies to short videos only
     public var isLoopPlay = KSOptions.isLoopPlay
-    /// 是否自动播放，默认false
-    public var isAutoPlay = KSOptions.isAutoPlay
     /// seek完是否自动播放
     public var isSeekedAutoPlay = KSOptions.isSeekedAutoPlay
     /*
@@ -34,6 +36,7 @@ open class KSOptions {
      */
     public var seekFlags = Int32(1)
     // ffmpeg only cache http
+    // 这个开关不能用，因为ff_tempfile: Cannot open temporary file
     public var cache = false
     //  record stream
     public var outputURL: URL?
@@ -43,6 +46,7 @@ open class KSOptions {
     public var probesize: Int64?
     public var maxAnalyzeDuration: Int64?
     public var lowres = UInt8(0)
+    public var nobuffer = false
     public var codecLowDelay = false
     public var startPlayTime: TimeInterval = 0
     public var startPlayRate: Float = 1.0
@@ -57,21 +61,15 @@ open class KSOptions {
         }
     }
 
-    public var userAgent: String? {
+    public var userAgent: String? = "KSPlayer" {
         didSet {
-            if let userAgent {
-                formatContextOptions["user_agent"] = userAgent
-            } else {
-                formatContextOptions["user_agent"] = nil
-            }
+            formatContextOptions["user_agent"] = userAgent
         }
     }
 
     // audio
     public var audioFilters = [String]()
     public var syncDecodeAudio = false
-    // Locale(identifier: "en-US") Locale(identifier: "zh-CN")
-    public var audioLocale: Locale?
     // sutile
     public var autoSelectEmbedSubtitle = true
     public var isSeekImageSubtitle = false
@@ -87,7 +85,7 @@ open class KSOptions {
     public var hardwareDecode = KSOptions.hardwareDecode
     public var asynchronousDecompression = KSOptions.asynchronousDecompression
     public var videoDisable = false
-    public var canStartPictureInPictureAutomaticallyFromInline = true
+    public var canStartPictureInPictureAutomaticallyFromInline = KSOptions.canStartPictureInPictureAutomaticallyFromInline
     public var automaticWindowResize = true
     @Published
     public var videoInterlacingType: VideoInterlacingType?
@@ -106,24 +104,30 @@ open class KSOptions {
     public internal(set) var decodeAudioTime = 0.0
     public internal(set) var decodeVideoTime = 0.0
     public init() {
+        formatContextOptions["user_agent"] = userAgent
         // 参数的配置可以参考protocols.texi 和 http.c
+        // 这个一定要，不然有的流就会判断不准FieldOrder
 //         formatContextOptions["scan_all_pmts"] = 1 #628 开启会导致单播变慢
-        formatContextOptions["auto_convert"] = 0
-        formatContextOptions["fps_probe_size"] =   3
+        // ts直播流需要加这个才能一直直播下去，不然播放一小段就会结束了。
+        formatContextOptions["reconnect"] = 1
+        formatContextOptions["reconnect_streamed"] = 1
+        // 这个是用来开启http的链接复用（keep-alive）。vlc默认是打开的，所以这边也默认打开。
+        // 开启这个，百度网盘的视频链接无法播放
+        // formatContextOptions["multiple_requests"] = 1
+        // 下面是用来处理秒开的参数，有需要的自己打开。默认不开，不然在播放某些特殊的ts直播流会频繁卡顿。
+//        formatContextOptions["auto_convert"] = 0
+//        formatContextOptions["fps_probe_size"] = 3
+//        formatContextOptions["rw_timeout"] = 10_000_000
+//        formatContextOptions["max_analyze_duration"] = 300 * 1000
         // 默认情况下允许所有协议，只有嵌套协议才需要指定这个协议子集，例如m3u8里面有http。
 //        formatContextOptions["protocol_whitelist"] = "file,http,https,tcp,tls,crypto,async,cache,data,httpproxy"
-//        formatContextOptions["max_analyze_duration"] = 300 * 1000
-        formatContextOptions["reconnect"] = 1
         // 开启这个，纯ipv6地址会无法播放。并且有些视频结束了，但还会一直尝试重连。所以这个值默认不设置
 //        formatContextOptions["reconnect_at_eof"] = 1
-        formatContextOptions["reconnect_streamed"] = 1
-//        formatContextOptions["multiple_requests"] = 1
         // 开启这个，会导致tcp Failed to resolve hostname 还会一直重试
 //        formatContextOptions["reconnect_on_network_error"] = 1
         // There is total different meaning for 'listen_timeout' option in rtmp
         // set 'listen_timeout' = -1 for rtmp、rtsp
 //        formatContextOptions["listen_timeout"] = 3
-        formatContextOptions["rw_timeout"] = 10_000_000
         decoderOptions["threads"] = "auto"
         decoderOptions["refcounted_frames"] = "1"
     }
@@ -161,7 +165,7 @@ open class KSOptions {
         let frameCount = capacitys.map(\.frameCount).min() ?? 0
         let isEndOfFile = capacitys.allSatisfy(\.isEndOfFile)
         let loadedTime = capacitys.map(\.loadedTime).min() ?? 0
-        let progress = loadedTime * 100.0 / preferredForwardBufferDuration
+        let progress = preferredForwardBufferDuration == 0 ? 100 : loadedTime * 100.0 / preferredForwardBufferDuration
         let isPlayable = capacitys.allSatisfy { capacity in
             if capacity.isEndOfFile && capacity.packetCount == 0 {
                 return true
@@ -181,11 +185,11 @@ open class KSOptions {
                     if isFirst {
                         return true
                     } else {
-                        return capacity.loadedTime >= preferredForwardBufferDuration / 2
+                        return capacity.loadedTime >= self.preferredForwardBufferDuration / 2
                     }
                 }
             }
-            return capacity.loadedTime >= preferredForwardBufferDuration
+            return capacity.loadedTime >= self.preferredForwardBufferDuration
         }
         return LoadingState(loadedTime: loadedTime, progress: progress, packetCount: packetCount,
                             frameCount: frameCount, isEndOfFile: isEndOfFile, isPlayable: isPlayable,
@@ -263,10 +267,10 @@ open class KSOptions {
         }
     }
 
-    private var idetTypeMap = [VideoInterlacingType: Int]()
+    private var idetTypeMap = [VideoInterlacingType: UInt]()
     open func filter(log: String) {
-        if log.starts(with: "Repeated Field:") {
-            log.split(separator: ",").forEach { str in
+        if log.starts(with: "Repeated Field:"), autoDeInterlace {
+            for str in log.split(separator: ",") {
                 let map = str.split(separator: ":")
                 if map.count >= 2 {
                     if String(map[0].trimmingCharacters(in: .whitespaces)) == "Multi frame" {
@@ -310,44 +314,54 @@ open class KSOptions {
                 hardwareDecode = false
                 asynchronousDecompression = false
                 let yadif = hardwareDecode ? "yadif_videotoolbox" : "yadif"
-                videoFilters.append("\(yadif)=mode=\(KSOptions.yadifMode):parity=-1:deint=1")
+                var yadifMode = KSOptions.yadifMode
+//                if let assetTrack = assetTrack as? FFmpegAssetTrack {
+//                    if assetTrack.realFrameRate.num == 2 * assetTrack.avgFrameRate.num, assetTrack.realFrameRate.den == assetTrack.avgFrameRate.den {
+//                        if yadifMode == 1 {
+//                            yadifMode = 0
+//                        } else if yadifMode == 3 {
+//                            yadifMode = 2
+//                        }
+//                    }
+//                }
+                if KSOptions.deInterlaceAddIdet {
+                    videoFilters.append("idet")
+                }
+                videoFilters.append("\(yadif)=mode=\(yadifMode):parity=-1:deint=1")
+                if yadifMode == 1 || yadifMode == 3 {
+                    assetTrack.nominalFrameRate = assetTrack.nominalFrameRate * 2
+                }
             }
         }
     }
 
-    open func updateVideo(refreshRate: Float, isDovi _: Bool, formatDescription: CMFormatDescription?) {
+    @MainActor
+    open func updateVideo(refreshRate: Float, isDovi: Bool, formatDescription: CMFormatDescription?) {
         #if os(tvOS) || os(xrOS)
+        /**
+         快速更改preferredDisplayCriteria，会导致isDisplayModeSwitchInProgress变成true。
+         例如退出一个视频，然后在3s内重新进入的话。所以不判断isDisplayModeSwitchInProgress了
+         */
         guard let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
               displayManager.isDisplayCriteriaMatchingEnabled
         else {
             return
         }
-//        快速更改preferredDisplayCriteria，会导致isDisplayModeSwitchInProgress变成true，例如退出一个视频，然后在3s内重新进入的话，
-        if let formatDescription {
-            if KSOptions.displayCriteriaFormatDescriptionEnabled, #available(tvOS 17.0, *) {
-                displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, formatDescription: formatDescription)
-            } else {
-//                let dynamicRange = isDovi ? .dolbyVision : formatDescription.dynamicRange
-//                displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: dynamicRange.rawValue)
-            }
+        if let dynamicRange = isDovi ? .dolbyVision : formatDescription?.dynamicRange {
+            displayManager.preferredDisplayCriteria = AVDisplayCriteria(refreshRate: refreshRate, videoDynamicRange: dynamicRange.rawValue)
         }
         #endif
     }
 
-//    private var lastMediaTime = CACurrentMediaTime()
-    open func videoClockSync(main: KSClock, nextVideoTime: TimeInterval, fps: Float, frameCount: Int) -> (Double, ClockProcessType) {
-        var desire = main.getTime() - videoDelay
-        #if !os(macOS)
-        desire -= AVAudioSession.sharedInstance().outputLatency
-        #endif
+    open func videoClockSync(main: KSClock, nextVideoTime: TimeInterval, fps: Double, frameCount: Int) -> (Double, ClockProcessType) {
+        let desire = main.getTime() - videoDelay
         let diff = nextVideoTime - desire
-//        print("[video] video diff \(diff) audio \(main.positionTime) interval \(CACurrentMediaTime() - main.lastMediaTime) render interval \(CACurrentMediaTime() - lastMediaTime)")
-        // 最大刷新率上限
-        if diff >= 1 / 120 {
+//        print("[video] video diff \(diff) nextVideoTime \(nextVideoTime) main \(main.time.seconds)")
+        if diff >= 1 / fps / 2 {
             videoClockDelayCount = 0
             return (diff, .remain)
         } else {
-            if diff < -4 / Double(fps) {
+            if diff < -4 / fps {
                 videoClockDelayCount += 1
                 let log = "[video] video delay=\(diff), clock=\(desire), delay count=\(videoClockDelayCount), frameCount=\(frameCount)"
                 if frameCount == 1 {
@@ -378,14 +392,12 @@ open class KSOptions {
                 }
             } else {
                 videoClockDelayCount = 0
-//                print("[video] video interval \(CACurrentMediaTime() - lastMediaTime)")
-//                lastMediaTime = CACurrentMediaTime()
                 return (diff, .next)
             }
         }
     }
 
-    open func availableDynamicRange(_ cotentRange: DynamicRange?) -> DynamicRange? {
+    open func availableDynamicRange(_ contentRange: DynamicRange?) -> DynamicRange? {
         #if canImport(UIKit)
         let availableHDRModes = AVPlayer.availableHDRModes
         if let preferedDynamicRange = destinationDynamicRange {
@@ -394,23 +406,25 @@ open class KSOptions {
                 return .sdr
             } else if availableHDRModes.contains(preferedDynamicRange.hdrMode) {
                 return preferedDynamicRange
-            } else if let cotentRange,
-                      availableHDRModes.contains(cotentRange.hdrMode)
+            } else if let contentRange,
+                      availableHDRModes.contains(contentRange.hdrMode)
             {
-                return cotentRange
+                return contentRange
             } else if preferedDynamicRange != .sdr { // trying update to HDR mode
                 return availableHDRModes.dynamicRange
             }
         }
-        return cotentRange
+        return contentRange
         #else
-        return destinationDynamicRange ?? cotentRange
+        return destinationDynamicRange ?? contentRange
         #endif
     }
 
     open func playerLayerDeinit() {
         #if os(tvOS) || os(xrOS)
-        UIApplication.shared.windows.first?.avDisplayManager.preferredDisplayCriteria = nil
+        runOnMainThread {
+            UIApplication.shared.windows.first?.avDisplayManager.preferredDisplayCriteria = nil
+        }
         #endif
     }
 
@@ -426,6 +440,10 @@ open class KSOptions {
 //        } else {
 //            return 1
 //        }
+    }
+
+    open func process(url _: URL) -> AbstractAVIOContext? {
+        nil
     }
 }
 
@@ -449,14 +467,17 @@ public extension KSOptions {
     static var isAccurateSeek = false
     /// Applies to short videos only
     static var isLoopPlay = false
-    /// 是否自动播放，默认false
-    static var isAutoPlay = false
+    /// 是否自动播放，默认true
+    static var isAutoPlay = true
     /// seek完是否自动播放
     static var isSeekedAutoPlay = true
     static var hardwareDecode = true
-    static var asynchronousDecompression = true
+    // 默认不用自研的硬解，因为有些视频的AVPacket的pts顺序是不对的，只有解码后的AVFrame里面的pts是对的。
+    static var asynchronousDecompression = false
     static var isPipPopViewController = false
-    static var displayCriteriaFormatDescriptionEnabled = false
+    static var canStartPictureInPictureAutomaticallyFromInline = true
+    static var preferredFrame = true
+    static var useSystemHTTPProxy = true
     /// 日志级别
     static var logLevel = LogLevel.warning
     static var logger: LogHandler = OSLog(lable: "KSPlayer")
@@ -471,12 +492,15 @@ public extension KSOptions {
         #if os(macOS)
 //        try? AVAudioSession.sharedInstance().setRouteSharingPolicy(.longFormAudio)
         #else
-        let category = AVAudioSession.sharedInstance().category
-        if category == .playback || category == .playAndRecord {
-            try? AVAudioSession.sharedInstance().setCategory(category, mode: .moviePlayback, policy: .longFormAudio)
-        } else {
-            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, policy: .longFormAudio)
+        var category = AVAudioSession.sharedInstance().category
+        if category != .playAndRecord {
+            category = .playback
         }
+        #if os(tvOS)
+        try? AVAudioSession.sharedInstance().setCategory(category, mode: .moviePlayback, policy: .longFormAudio)
+        #else
+        try? AVAudioSession.sharedInstance().setCategory(category, mode: .moviePlayback, policy: .longFormVideo)
+        #endif
         try? AVAudioSession.sharedInstance().setActive(true)
         #endif
     }
@@ -505,17 +529,22 @@ public extension KSOptions {
         var channelCount = channelCount
         if channelCount > 2 {
             let minChannels = min(maximumOutputNumberOfChannels, channelCount)
-            // iOS 有空间音频功能，所以不用处理
             #if os(tvOS) || targetEnvironment(simulator)
             if !(isUseAudioRenderer && isSpatialAudioEnabled) {
                 // 不要用maxRouteChannelsCount来判断，有可能会不准。导致多音道设备也返回2（一开始播放一个2声道，就容易出现），也不能用outputNumberOfChannels来判断，有可能会返回2
 //                channelCount = AVAudioChannelCount(min(AVAudioSession.sharedInstance().outputNumberOfChannels, maxRouteChannelsCount))
                 channelCount = minChannels
             }
+            #else
+            // iOS 外放是会自动有空间音频功能，但是蓝牙耳机有可能没有空间音频功能或者把空间音频给关了，。所以还是需要处理。
+            if !isSpatialAudioEnabled {
+                channelCount = minChannels
+            }
             #endif
         } else {
             channelCount = 2
         }
+        // 不在这里设置setPreferredOutputNumberOfChannels,因为这个方法会在获取音轨信息的时候，进行调用。
         KSLog("[audio] outputNumberOfChannels: \(AVAudioSession.sharedInstance().outputNumberOfChannels) output channelCount: \(channelCount)")
         return channelCount
     }

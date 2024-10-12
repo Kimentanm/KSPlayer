@@ -70,10 +70,14 @@ class VideoSwresample: FrameChange {
     private var height: Int32 = 0
     private var width: Int32 = 0
     private var pool: CVPixelBufferPool?
+    private var dstHeight: Int32?
+    private var dstWidth: Int32?
     private let dstFormat: AVPixelFormat?
     private let fps: Float
     private let isDovi: Bool
-    init(dstFormat: AVPixelFormat? = nil, fps: Float = 60, isDovi: Bool) {
+    init(dstWidth: Int32? = nil, dstHeight: Int32? = nil, dstFormat: AVPixelFormat? = nil, fps: Float = 60, isDovi: Bool) {
+        self.dstWidth = dstWidth
+        self.dstHeight = dstHeight
         self.dstFormat = dstFormat
         self.fps = fps
         self.isDovi = isDovi
@@ -86,26 +90,6 @@ class VideoSwresample: FrameChange {
         } else {
             frame.corePixelBuffer = transfer(frame: avframe.pointee)
         }
-        if avframe.pointee.nb_side_data > 0 {
-            for i in 0 ..< avframe.pointee.nb_side_data {
-                if let sideData = avframe.pointee.side_data[Int(i)]?.pointee {
-                    if sideData.type == AV_FRAME_DATA_DOVI_RPU_BUFFER {
-                        let rpuBuff = sideData.data.withMemoryRebound(to: [UInt8].self, capacity: 1) { $0 }
-                    } else if sideData.type == AV_FRAME_DATA_DOVI_METADATA { // AVDOVIMetadata
-                        let doviMeta = sideData.data.withMemoryRebound(to: AVDOVIMetadata.self, capacity: 1) { $0 }
-                        let header = av_dovi_get_header(doviMeta)
-                        let mapping = av_dovi_get_mapping(doviMeta)
-                        let color = av_dovi_get_color(doviMeta)
-                        frame.corePixelBuffer?.transferFunction = kCVImageBufferTransferFunction_ITU_R_2020
-                    } else if sideData.type == AV_FRAME_DATA_DYNAMIC_HDR_PLUS { // AVDynamicHDRPlus
-                        let hdrPlus = sideData.data.withMemoryRebound(to: AVDynamicHDRPlus.self, capacity: 1) { $0 }.pointee
-
-                    } else if sideData.type == AV_FRAME_DATA_DYNAMIC_HDR_VIVID { // AVDynamicHDRVivid
-                        let hdrVivid = sideData.data.withMemoryRebound(to: AVDynamicHDRVivid.self, capacity: 1) { $0 }.pointee
-                    }
-                }
-            }
-        }
         return frame
     }
 
@@ -116,8 +100,10 @@ class VideoSwresample: FrameChange {
         self.format = format
         self.height = height
         self.width = width
+        let dstWidth = dstWidth ?? width
+        let dstHeight = dstHeight ?? height
         let pixelFormatType: OSType
-        if let osType = format.osType() {
+        if self.dstWidth == nil, self.dstHeight == nil, dstFormat == nil, let osType = format.osType() {
             pixelFormatType = osType
             sws_freeContext(imgConvertCtx)
             imgConvertCtx = nil
@@ -125,12 +111,13 @@ class VideoSwresample: FrameChange {
             let dstFormat = dstFormat ?? format.bestPixelFormat
             pixelFormatType = dstFormat.osType()!
 //            imgConvertCtx = sws_getContext(width, height, self.format, width, height, dstFormat, SWS_FAST_BILINEAR, nil, nil, nil)
-            imgConvertCtx = sws_getCachedContext(imgConvertCtx, width, height, self.format, width, height, dstFormat, SWS_FAST_BILINEAR, nil, nil, nil)
+            // AV_PIX_FMT_VIDEOTOOLBOX格式是无法进行swscale的
+            imgConvertCtx = sws_getCachedContext(imgConvertCtx, width, height, self.format, dstWidth, dstHeight, dstFormat, SWS_FAST_BILINEAR, nil, nil, nil)
         }
-        pool = CVPixelBufferPool.ceate(width: width, height: height, bytesPerRowAlignment: linesize, pixelFormatType: pixelFormatType)
+        pool = CVPixelBufferPool.create(width: dstWidth, height: dstHeight, bytesPerRowAlignment: linesize, pixelFormatType: pixelFormatType)
     }
 
-    private func transfer(frame: AVFrame) -> PixelBufferProtocol? {
+    func transfer(frame: AVFrame) -> PixelBufferProtocol? {
         let format = AVPixelFormat(rawValue: frame.format)
         let width = frame.width
         let height = frame.height
@@ -157,7 +144,7 @@ class VideoSwresample: FrameChange {
     }
 
     func transfer(format: AVPixelFormat, width: Int32, height: Int32, data: [UnsafeMutablePointer<UInt8>?], linesize: [Int32]) -> CVPixelBuffer? {
-        setup(format: format, width: width, height: height, linesize: linesize[0])
+        setup(format: format, width: width, height: height, linesize: linesize[1] == 0 ? linesize[0] : linesize[1])
         guard let pool else {
             return nil
         }

@@ -22,7 +22,7 @@ extension OSType {
 }
 
 extension CVPixelBufferPool {
-    static func ceate(width: Int32, height: Int32, bytesPerRowAlignment: Int32, pixelFormatType: OSType, bufferCount: Int = 24) -> CVPixelBufferPool? {
+    static func create(width: Int32, height: Int32, bytesPerRowAlignment: Int32, pixelFormatType: OSType, bufferCount: Int = 24) -> CVPixelBufferPool? {
         let sourcePixelBufferOptions: NSMutableDictionary = [
             kCVPixelBufferPixelFormatTypeKey: pixelFormatType,
             kCVPixelBufferWidthKey: width,
@@ -117,7 +117,7 @@ extension AVAudioChannelLayout {
         var mask: UInt64?
         if layoutTag == kAudioChannelLayoutTag_UseChannelDescriptions {
             var newMask = UInt64(0)
-            layout.channelDescriptions.forEach { description in
+            for description in layout.channelDescriptions {
                 let label = description.mChannelLabel
                 KSLog("[audio] label: \(label)")
                 let channel = label.avChannel.rawValue

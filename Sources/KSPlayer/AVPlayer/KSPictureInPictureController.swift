@@ -6,11 +6,12 @@
 //
 
 import AVKit
+
 @available(tvOS 14.0, *)
 public class KSPictureInPictureController: AVPictureInPictureController {
     private static var pipController: KSPictureInPictureController?
     private var originalViewController: UIViewController?
-    private weak var view: KSPlayerLayer?
+    private var view: KSPlayerLayer?
     private weak var viewController: UIViewController?
     private weak var presentingViewController: UIViewController?
     #if canImport(UIKit)
@@ -26,7 +27,8 @@ public class KSPictureInPictureController: AVPictureInPictureController {
         KSPictureInPictureController.pipController = nil
         if restoreUserInterface {
             #if canImport(UIKit)
-            if let viewController, let originalViewController {
+            runOnMainThread { [weak self] in
+                guard let self, let viewController, let originalViewController else { return }
                 if let nav = viewController as? UINavigationController,
                    nav.viewControllers.isEmpty || (nav.viewControllers.count == 1 && nav.viewControllers[0] != originalViewController)
                 {
@@ -51,6 +53,7 @@ public class KSPictureInPictureController: AVPictureInPictureController {
         }
 
         originalViewController = nil
+        view = nil
     }
 
     func start(view: KSPlayerLayer) {
@@ -59,13 +62,17 @@ public class KSPictureInPictureController: AVPictureInPictureController {
         guard KSOptions.isPipPopViewController else {
             #if canImport(UIKit)
             // 直接退到后台
-            UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+            runOnMainThread {
+                UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
+            }
             #endif
             return
         }
         self.view = view
         #if canImport(UIKit)
-        if let viewController = view.viewController {
+        runOnMainThread { [weak self] in
+            guard let self, let viewController = view.player.view?.viewController else { return }
+
             originalViewController = viewController
             if let navigationController = viewController.navigationController, navigationController.viewControllers.count == 1 {
                 self.viewController = navigationController

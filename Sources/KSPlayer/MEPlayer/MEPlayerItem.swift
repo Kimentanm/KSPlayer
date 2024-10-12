@@ -11,7 +11,7 @@ import Libavcodec
 import Libavfilter
 import Libavformat
 
-final class MEPlayerItem {
+public final class MEPlayerItem: Sendable {
     private let url: URL
     private let options: KSOptions
     private let operationQueue = OperationQueue()
@@ -33,7 +33,6 @@ final class MEPlayerItem {
     private var allPlayerItemTracks = [PlayerItemTrackProtocol]()
     private var maxFrameDuration = 10.0
     private var videoAudioTracks = [CapacityProtocol]()
-    private var audioRecognizer: AudioRecognizer?
     private var videoTrack: SyncPlayerItemTrack<VideoVTBFrame>?
     private var audioTrack: SyncPlayerItemTrack<AudioFrame>?
     private(set) var assetTracks = [FFmpegAssetTrack]()
@@ -41,15 +40,16 @@ final class MEPlayerItem {
     private var videoDisplayCount = UInt8(0)
     private var seekByBytes = false
     private var lastVideoDisplayTime = CACurrentMediaTime()
-    var currentPlaybackTime: TimeInterval {
+    public private(set) var chapters: [Chapter] = []
+    public var currentPlaybackTime: TimeInterval {
         state == .seeking ? seekTime : (mainClock().time - startTime).seconds
     }
 
     private var seekTime = TimeInterval(0)
     private var startTime = CMTime.zero
-    private(set) var duration: TimeInterval = 0
-    private(set) var fileSize: Double = 0
-    private(set) var naturalSize = CGSize.zero
+    public private(set) var duration: TimeInterval = 0
+    public private(set) var fileSize: Double = 0
+    public private(set) var naturalSize = CGSize.zero
     private var error: NSError? {
         didSet {
             if error != nil {
@@ -81,6 +81,7 @@ final class MEPlayerItem {
     }
 
     lazy var dynamicInfo = DynamicInfo { [weak self] in
+        // metadata可能会实时变化。所以把它放在DynamicInfo里面
         toDictionary(self?.formatCtx?.pointee.metadata)
     } bytesRead: { [weak self] in
         self?.formatCtx?.pointee.pb?.pointee.bytes_read ?? 0
@@ -131,44 +132,40 @@ final class MEPlayerItem {
     }()
 
     weak var delegate: MEPlayerDelegate?
-    init(url: URL, options: KSOptions) {
+    public init(url: URL, options: KSOptions) {
         self.url = url
         self.options = options
         timer.fireDate = Date.distantFuture
         operationQueue.name = "KSPlayer_" + String(describing: self).components(separatedBy: ".").last!
         operationQueue.maxConcurrentOperationCount = 1
         operationQueue.qualityOfService = .userInteractive
-//        _ = MEPlayerItem.onceInitial
-        if let locale = options.audioLocale {
-            audioRecognizer = AudioRecognizer(locale: locale) { text in
-                print(text)
-            }
-        }
+        _ = MEPlayerItem.onceInitial
     }
 
-    func select(track: some MediaPlayerTrack) {
+    func select(track: some MediaPlayerTrack) -> Bool {
         if track.isEnabled {
-            return
+            return false
         }
         assetTracks.filter { $0.mediaType == track.mediaType }.forEach {
             $0.isEnabled = track === $0
         }
         guard let assetTrack = track as? FFmpegAssetTrack else {
-            return
+            return false
         }
         if assetTrack.mediaType == .video {
             findBestAudio(videoTrack: assetTrack)
         } else if assetTrack.mediaType == .subtitle {
             if assetTrack.isImageSubtitle {
                 if !options.isSeekImageSubtitle {
-                    return
+                    return false
                 }
             } else {
-                return
+                return false
             }
         }
         seek(time: currentPlaybackTime) { _ in
         }
+        return true
     }
 }
 
@@ -197,24 +194,21 @@ extension MEPlayerItem {
             }
         }
         formatCtx.pointee.interrupt_callback = interruptCB
-//        formatCtx.pointee.io_close2 = { formatCtx, pb -> Int32 in
-//            return 0
-//
-//        }
-//        formatCtx.pointee.io_open = { formatCtx, context, url, flags, options -> Int32 in
-//            return 0
+        // avformat_close_input这个函数会调用io_close2。但是自定义协议是不会调用io_close2这个函数
+//        formatCtx.pointee.io_close2 = { _, _ -> Int32 in
+//            0
 //        }
         setHttpProxy()
         var avOptions = options.formatContextOptions.avOptions
+        if let pb = options.process(url: url) {
+            // 如果要自定义协议的话，那就用avio_alloc_context，对formatCtx.pointee.pb赋值
+            formatCtx.pointee.pb = pb.getContext()
+        }
         var urlString: String
         if url.isFileURL {
             urlString = url.path
         } else {
-            if url.absoluteString.hasPrefix("https") || !options.cache {
-                urlString = url.absoluteString
-            } else {
-                urlString = "async:cache:" + url.absoluteString
-            }
+            urlString = url.absoluteString
         }
         urlString = urlString.replacingOccurrences(of: "%5B", with: "[").replacingOccurrences(of: "%5D", with: "]")
         // 如果要自定义协议的话，那就用avio_alloc_context，对formatCtx.pointee.pb赋值
@@ -232,6 +226,9 @@ extension MEPlayerItem {
         }
         options.openTime = CACurrentMediaTime()
         formatCtx.pointee.flags |= AVFMT_FLAG_GENPTS
+        if options.nobuffer {
+            formatCtx.pointee.flags |= AVFMT_FLAG_NOBUFFER
+        }
         if let probesize = options.probesize {
             formatCtx.pointee.probesize = probesize
         }
@@ -259,8 +256,22 @@ extension MEPlayerItem {
         duration = TimeInterval(max(formatCtx.pointee.duration, 0) / Int64(AV_TIME_BASE))
         fileSize = Double(formatCtx.pointee.bit_rate) * duration / 8
         createCodec(formatCtx: formatCtx)
+        if formatCtx.pointee.nb_chapters > 0 {
+            chapters.removeAll()
+            for i in 0 ..< formatCtx.pointee.nb_chapters {
+                if let chapter = formatCtx.pointee.chapters[Int(i)]?.pointee {
+                    let timeBase = Timebase(chapter.time_base)
+                    let start = timeBase.cmtime(for: chapter.start).seconds
+                    let end = timeBase.cmtime(for: chapter.end).seconds
+                    let metadata = toDictionary(chapter.metadata)
+                    let title = metadata["title"] ?? ""
+                    chapters.append(Chapter(start: start, end: end, title: title))
+                }
+            }
+        }
+
         if let outputURL = options.outputURL {
-            openOutput(url: outputURL)
+            startRecord(url: outputURL)
         }
         if videoTrack == nil, audioTrack == nil {
             state = .failed
@@ -270,7 +281,8 @@ extension MEPlayerItem {
         }
     }
 
-    private func openOutput(url: URL) {
+    func startRecord(url: URL) {
+        stopRecord()
         let filename = url.isFileURL ? url.path : url.absoluteString
         var ret = avformat_alloc_output_context2(&outputFormatCtx, nil, nil, filename)
         guard let outputFormatCtx, let formatCtx else {
@@ -281,21 +293,21 @@ extension MEPlayerItem {
         var audioIndex: Int?
         var videoIndex: Int?
         let formatName = outputFormatCtx.pointee.oformat.pointee.name.flatMap { String(cString: $0) }
-        (0 ..< Int(formatCtx.pointee.nb_streams)).forEach { i in
+        for i in 0 ..< Int(formatCtx.pointee.nb_streams) {
             if let inputStream = formatCtx.pointee.streams[i] {
                 let codecType = inputStream.pointee.codecpar.pointee.codec_type
                 if [AVMEDIA_TYPE_AUDIO, AVMEDIA_TYPE_VIDEO, AVMEDIA_TYPE_SUBTITLE].contains(codecType) {
                     if codecType == AVMEDIA_TYPE_AUDIO {
                         if let audioIndex {
                             streamMapping[i] = audioIndex
-                            return
+                            continue
                         } else {
                             audioIndex = index
                         }
                     } else if codecType == AVMEDIA_TYPE_VIDEO {
                         if let videoIndex {
                             streamMapping[i] = videoIndex
-                            return
+                            continue
                         } else {
                             videoIndex = index
                         }
@@ -438,7 +450,11 @@ extension MEPlayerItem {
             if options.startPlayTime > 0 {
                 let timestamp = startTime + CMTime(seconds: options.startPlayTime)
                 let flags = seekByBytes ? AVSEEK_FLAG_BYTE : 0
-                _ = avformat_seek_file(formatCtx, -1, Int64.min, timestamp.value, Int64.max, flags)
+                let seekStartTime = CACurrentMediaTime()
+                let result = avformat_seek_file(formatCtx, -1, Int64.min, timestamp.value, Int64.max, flags)
+                audioClock.time = timestamp
+                videoClock.time = timestamp
+                KSLog("start PlayTime: \(timestamp.seconds) spend Time: \(CACurrentMediaTime() - seekStartTime)")
             }
             state = .reading
         }
@@ -604,10 +620,10 @@ extension MEPlayerItem: MediaPlayback {
         if let ioContext = formatCtx.pointee.pb {
             seekable = ioContext.pointee.seekable > 0 || duration != 0
         }
-        return seekable && duration > 0
+        return seekable
     }
 
-    func prepareToPlay() {
+    public func prepareToPlay() {
         state = .opening
         openOperation = BlockOperation { [weak self] in
             guard let self else { return }
@@ -622,18 +638,23 @@ extension MEPlayerItem: MediaPlayback {
         }
     }
 
-    func shutdown() {
+    public func shutdown() {
         guard state != .closed else { return }
         state = .closed
         av_packet_free(&outputPacket)
-        if let outputFormatCtx {
-            av_write_trailer(outputFormatCtx)
-        }
+        stopRecord()
         // 故意循环引用。等结束了。才释放
         let closeOperation = BlockOperation {
             Thread.current.name = (self.operationQueue.name ?? "") + "_close"
             self.allPlayerItemTracks.forEach { $0.shutdown() }
             KSLog("清空formatCtx")
+            // 自定义的协议才会av_class为空
+            if let formatCtx = self.formatCtx, (formatCtx.pointee.flags & AVFMT_FLAG_CUSTOM_IO) != 0, let opaque = formatCtx.pointee.pb.pointee.opaque {
+                let value = Unmanaged<AbstractAVIOContext>.fromOpaque(opaque).takeRetainedValue()
+                value.close()
+            }
+            // 不要自己来释放pb。不然第二次播放同一个url会出问题
+//            self.formatCtx?.pointee.pb = nil
             self.formatCtx?.pointee.interrupt_callback.opaque = nil
             self.formatCtx?.pointee.interrupt_callback.callback = nil
             avformat_close_input(&self.formatCtx)
@@ -661,7 +682,13 @@ extension MEPlayerItem: MediaPlayback {
         self.closeOperation = closeOperation
     }
 
-    func seek(time: TimeInterval, completion: @escaping ((Bool) -> Void)) {
+    func stopRecord() {
+        if let outputFormatCtx {
+            av_write_trailer(outputFormatCtx)
+        }
+    }
+
+    public func seek(time: TimeInterval, completion: @escaping ((Bool) -> Void)) {
         if state == .reading || state == .paused {
             seekTime = time
             state = .seeking
@@ -759,32 +786,36 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
         isAudioStalled ? videoClock : audioClock
     }
 
-    func setVideo(time: CMTime, position: Int64) {
+    public func setVideo(time: CMTime, position: Int64) {
+//        print("[video] video interval \(CACurrentMediaTime() - videoClock.lastMediaTime) video diff \(time.seconds - videoClock.time.seconds)")
         videoClock.time = time
         videoClock.position = position
-        let time = CACurrentMediaTime()
         videoDisplayCount += 1
-        let diff = time - lastVideoDisplayTime
+        let diff = videoClock.lastMediaTime - lastVideoDisplayTime
         if diff > 1 {
             dynamicInfo.displayFPS = Double(videoDisplayCount) / diff
             videoDisplayCount = 0
-            lastVideoDisplayTime = time
+            lastVideoDisplayTime = videoClock.lastMediaTime
         }
     }
 
-    func setAudio(time: CMTime, position: Int64) {
-        audioClock.time = time
-        audioClock.position = position
+    public func setAudio(time: CMTime, position: Int64) {
+//        print("[audio] setAudio: \(time.seconds)")
+        // 切换到主线程的话，那播放起来会更顺滑
+        runOnMainThread {
+            self.audioClock.time = time
+            self.audioClock.position = position
+        }
     }
 
-    func getVideoOutputRender(force: Bool) -> VideoVTBFrame? {
+    public func getVideoOutputRender(force: Bool) -> VideoVTBFrame? {
         guard let videoTrack else {
             return nil
         }
         var type: ClockProcessType = force ? .next : .remain
         let predicate: ((VideoVTBFrame, Int) -> Bool)? = force ? nil : { [weak self] frame, count -> Bool in
             guard let self else { return true }
-            (self.dynamicInfo.audioVideoSyncDiff, type) = self.options.videoClockSync(main: self.mainClock(), nextVideoTime: frame.seconds, fps: frame.fps, frameCount: count)
+            (self.dynamicInfo.audioVideoSyncDiff, type) = self.options.videoClockSync(main: self.mainClock(), nextVideoTime: frame.seconds, fps: Double(frame.fps), frameCount: count)
             return type != .remain
         }
         let frame = videoTrack.getOutputRender(where: predicate)
@@ -829,12 +860,35 @@ extension MEPlayerItem: OutputRenderSourceDelegate {
         return frame
     }
 
-    func getAudioOutputRender() -> AudioFrame? {
+    public func getAudioOutputRender() -> AudioFrame? {
         if let frame = audioTrack?.getOutputRender(where: nil) {
-            audioRecognizer?.append(frame: frame)
+            SubtitleModel.audioRecognizes.first {
+                $0.isEnabled
+            }?.append(frame: frame)
             return frame
         } else {
             return nil
+        }
+    }
+}
+
+extension AbstractAVIOContext {
+    func getContext() -> UnsafeMutablePointer<AVIOContext> {
+        // 需要持有ioContext，不然会被释放掉,等到shutdown在清空
+        avio_alloc_context(av_malloc(Int(bufferSize)), bufferSize, writable ? 1 : 0, Unmanaged.passRetained(self).toOpaque()) { opaque, buffer, size -> Int32 in
+            let value = Unmanaged<AbstractAVIOContext>.fromOpaque(opaque!).takeUnretainedValue()
+            let ret = value.read(buffer: buffer, size: size)
+            return Int32(ret)
+        } _: { opaque, buffer, size -> Int32 in
+            let value = Unmanaged<AbstractAVIOContext>.fromOpaque(opaque!).takeUnretainedValue()
+            let ret = value.write(buffer: buffer, size: size)
+            return Int32(ret)
+        } _: { opaque, offset, whence -> Int64 in
+            let value = Unmanaged<AbstractAVIOContext>.fromOpaque(opaque!).takeUnretainedValue()
+            if whence == AVSEEK_SIZE {
+                return value.fileSize()
+            }
+            return value.seek(offset: offset, whence: whence)
         }
     }
 }

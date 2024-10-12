@@ -10,6 +10,7 @@ import Combine
 import CoreServices
 import MediaPlayer
 import UIKit
+
 open class IOSVideoPlayerView: VideoPlayerView {
     private weak var originalSuperView: UIView?
     private var originalframeConstraints: [NSLayoutConstraint]?
@@ -33,7 +34,7 @@ open class IOSVideoPlayerView: VideoPlayerView {
             fullScreenDelegate?.player(isMaskShow: isMaskShow, isFullScreen: landscapeButton.isSelected)
         }
     }
-    
+
     #if !os(xrOS)
     private var brightness: CGFloat = UIScreen.main.brightness {
         didSet {
@@ -411,6 +412,7 @@ extension IOSVideoPlayerView: UIDocumentPickerDelegate {
 #endif
 
 #if os(iOS)
+@MainActor
 public class MenuController {
     public init(with builder: UIMenuBuilder) {
         builder.remove(menu: .format)
@@ -464,6 +466,7 @@ public class MenuController {
             NSLocalizedString("\(rawValue)", comment: "")
         }
 
+        @MainActor
         var command: String {
             switch self {
             case .rightArrow:

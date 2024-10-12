@@ -59,7 +59,8 @@ class SyncPlayerItemTrack<Frame: MEFrame>: PlayerItemTrackProtocol, CustomString
         } else if mediaType == .video {
             outputRenderQueue = CircularBuffer(initialCapacity: Int(frameCapacity), sorted: true, expanding: false)
         } else {
-            outputRenderQueue = CircularBuffer(initialCapacity: Int(frameCapacity))
+            // 有的图片字幕不按顺序来输出，所以要排序下。
+            outputRenderQueue = CircularBuffer(initialCapacity: Int(frameCapacity), sorted: true)
         }
     }
 
@@ -127,11 +128,16 @@ class SyncPlayerItemTrack<Frame: MEFrame>: PlayerItemTrackProtocol, CustomString
         }
         lastPacketBytes += packet.size
         let decoder = decoderMap.value(for: packet.assetTrack.trackID, default: makeDecode(assetTrack: packet.assetTrack))
+//        var startTime = CACurrentMediaTime()
         decoder.decodeFrame(from: packet) { [weak self] result in
             guard let self else {
                 return
             }
             do {
+//                if packet.assetTrack.mediaType == .video {
+//                    print("[video] decode time: \(CACurrentMediaTime()-startTime)")
+//                    startTime = CACurrentMediaTime()
+//                }
                 let frame = try result.get()
                 if self.state == .flush || self.state == .closed {
                     return

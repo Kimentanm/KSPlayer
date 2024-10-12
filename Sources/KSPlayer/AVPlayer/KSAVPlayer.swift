@@ -4,10 +4,12 @@ import AVKit
 import UIKit
 #else
 import AppKit
+
 public typealias UIImage = NSImage
 #endif
 import Combine
 import CoreGraphics
+
 public final class KSAVPlayerView: UIView {
     public let player = AVQueuePlayer()
     override public init(frame: CGRect) {
@@ -63,6 +65,7 @@ public final class KSAVPlayerView: UIView {
     }
 }
 
+@MainActor
 public class KSAVPlayer {
     private var cancellable: AnyCancellable?
     private var options: KSOptions {
@@ -126,6 +129,7 @@ public class KSAVPlayer {
     public private(set) var duration: TimeInterval = 0
     public private(set) var fileSize: Double = 0
     public private(set) var playableTime: TimeInterval = 0
+    public let chapters: [Chapter] = []
     public var playbackRate: Float = 1 {
         didSet {
             if playbackState == .playing {
@@ -396,7 +400,7 @@ extension KSAVPlayer: MediaPlayerProtocol {
         let time = max(time, 0)
         shouldSeekTo = time
         playbackState = .seeking
-        runInMainqueue { [weak self] in
+        runOnMainThread { [weak self] in
             self?.bufferingProgress = 0
         }
         let tolerance: CMTime = options.isAccurateSeek ? .zero : .positiveInfinity
@@ -411,7 +415,7 @@ extension KSAVPlayer: MediaPlayerProtocol {
     public func prepareToPlay() {
         KSLog("prepareToPlay \(self)")
         options.prepareTime = CACurrentMediaTime()
-        runInMainqueue { [weak self] in
+        runOnMainThread { [weak self] in
             guard let self else { return }
             self.bufferingProgress = 0
             let playerItem = AVPlayerItem(asset: self.urlAsset)
@@ -511,17 +515,19 @@ class AVMediaPlayerTrack: MediaPlayerTrack {
     let formatDescription: CMFormatDescription?
     let description: String
     private let track: AVPlayerItemTrack
-    let nominalFrameRate: Float
+    var nominalFrameRate: Float
     let trackID: Int32
     let rotation: Int16 = 0
+    let bitDepth: Int32
     let bitRate: Int64
     let name: String
-    let language: String?
+    let languageCode: String?
     let mediaType: AVFoundation.AVMediaType
     let isImageSubtitle = false
     var dovi: DOVIDecoderConfigurationRecord?
     let fieldOrder: FFmpegFieldOrder = .unknown
     var isPlayable: Bool
+    @MainActor
     var isEnabled: Bool {
         get {
             track.isEnabled
@@ -536,17 +542,13 @@ class AVMediaPlayerTrack: MediaPlayerTrack {
         self.track = track
         trackID = track.assetTrack?.trackID ?? 0
         mediaType = track.assetTrack?.mediaType ?? .video
-        #if os(xrOS)
         name = track.assetTrack?.languageCode ?? ""
-        language = track.assetTrack?.extendedLanguageTag
+        languageCode = track.assetTrack?.languageCode
         nominalFrameRate = track.assetTrack?.nominalFrameRate ?? 24.0
         bitRate = Int64(track.assetTrack?.estimatedDataRate ?? 0)
+        #if os(xrOS)
         isPlayable = false
         #else
-        name = track.assetTrack?.languageCode ?? ""
-        language = track.assetTrack?.extendedLanguageTag
-        nominalFrameRate = track.assetTrack?.nominalFrameRate ?? 24.0
-        bitRate = Int64(track.assetTrack?.estimatedDataRate ?? 0)
         isPlayable = track.assetTrack?.isPlayable ?? false
         #endif
         // swiftlint:disable force_cast
@@ -555,6 +557,7 @@ class AVMediaPlayerTrack: MediaPlayerTrack {
         } else {
             formatDescription = nil
         }
+        bitDepth = formatDescription?.bitDepth ?? 0
         // swiftlint:enable force_cast
         description = (formatDescription?.mediaSubType ?? .boxed).rawValue.string
         channelLayoutDescribe = ""
@@ -569,7 +572,7 @@ class AVMediaPlayerTrack: MediaPlayerTrack {
 }
 
 public extension AVAsset {
-    func ceateImageGenerator() -> AVAssetImageGenerator {
+    func createImageGenerator() -> AVAssetImageGenerator {
         let imageGenerator = AVAssetImageGenerator(asset: self)
         imageGenerator.requestedTimeToleranceBefore = .zero
         imageGenerator.requestedTimeToleranceAfter = .zero
@@ -577,7 +580,7 @@ public extension AVAsset {
     }
 
     func thumbnailImage(currentTime: CMTime, handler: @escaping (CGImage?) -> Void) {
-        let imageGenerator = ceateImageGenerator()
+        let imageGenerator = createImageGenerator()
         imageGenerator.requestedTimeToleranceBefore = .zero
         imageGenerator.requestedTimeToleranceAfter = .zero
         imageGenerator.generateCGImagesAsynchronously(forTimes: [NSValue(time: currentTime)]) { _, cgImage, _, _, _ in

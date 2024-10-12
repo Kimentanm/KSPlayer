@@ -21,6 +21,7 @@ public final class AudioGraphPlayer: AudioOutput, AudioDynamicsProcessor {
     #if os(macOS)
     private var volumeBeforeMute: Float = 0.0
     #endif
+    private var outputLatency = TimeInterval(0)
     public weak var renderSource: OutputRenderSourceDelegate?
     private var currentRender: AudioFrame? {
         didSet {
@@ -30,7 +31,7 @@ public final class AudioGraphPlayer: AudioOutput, AudioDynamicsProcessor {
         }
     }
 
-    public func play(time _: TimeInterval) {
+    public func play() {
         AUGraphStart(graph)
     }
 
@@ -146,6 +147,9 @@ public final class AudioGraphPlayer: AudioOutput, AudioDynamicsProcessor {
                              kAudioUnitScope_Output, 0,
                              &value,
                              UInt32(MemoryLayout<UInt32>.size))
+        #if !os(macOS)
+        outputLatency = AVAudioSession.sharedInstance().outputLatency
+        #endif
     }
 
     public func prepare(audioFormat: AVAudioFormat) {
@@ -199,6 +203,9 @@ public final class AudioGraphPlayer: AudioOutput, AudioDynamicsProcessor {
 
     public func flush() {
         currentRender = nil
+        #if !os(macOS)
+        outputLatency = AVAudioSession.sharedInstance().outputLatency
+        #endif
     }
 
     deinit {
@@ -252,7 +259,7 @@ extension AudioGraphPlayer {
                 continue
             }
             if sourceNodeAudioFormat != currentRender.audioFormat {
-                runInMainqueue { [weak self] in
+                runOnMainThread { [weak self] in
                     guard let self else {
                         return
                     }
@@ -285,7 +292,11 @@ extension AudioGraphPlayer {
         if let currentRender {
             let currentPreparePosition = currentRender.timestamp + currentRender.duration * Int64(currentRenderReadOffset) / Int64(currentRender.numberOfSamples)
             if currentPreparePosition > 0 {
-                renderSource?.setAudio(time: currentRender.timebase.cmtime(for: currentPreparePosition), position: currentRender.position)
+                var time = currentRender.timebase.cmtime(for: currentPreparePosition)
+                if outputLatency != 0 {
+                    time = time - CMTime(seconds: outputLatency, preferredTimescale: time.timescale)
+                }
+                renderSource?.setAudio(time: time, position: currentRender.position)
             }
         }
     }

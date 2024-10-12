@@ -238,28 +238,40 @@ open class SubtitleModel: ObservableObject {
         public var rawValue: CGFloat {
             switch self {
             case .smaller:
-                #if os(tvOS)
+                #if os(tvOS) || os(xrOS)
                 return 48
-                #elseif os(macOS)
+                #elseif os(macOS) || os(xrOS)
                 return 20
                 #else
-                return 12
+                if UI_USER_INTERFACE_IDIOM() == .phone {
+                    return 12
+                } else {
+                    return 20
+                }
                 #endif
             case .standard:
-                #if os(tvOS)
+                #if os(tvOS) || os(xrOS)
                 return 58
-                #elseif os(macOS)
+                #elseif os(macOS) || os(xrOS)
                 return 26
                 #else
-                return 16
+                if UI_USER_INTERFACE_IDIOM() == .phone {
+                    return 16
+                } else {
+                    return 26
+                }
                 #endif
             case .large:
-                #if os(tvOS)
+                #if os(tvOS) || os(xrOS)
                 return 68
-                #elseif os(macOS)
+                #elseif os(macOS) || os(xrOS)
                 return 32
                 #else
-                return 20
+                if UI_USER_INTERFACE_IDIOM() == .phone {
+                    return 20
+                } else {
+                    return 32
+                }
                 #endif
             }
         }
@@ -275,6 +287,7 @@ open class SubtitleModel: ObservableObject {
     public static var textBold = false
     public static var textItalic = false
     public static var textPosition = TextPosition()
+    public static var audioRecognizes = [any AudioRecognize]()
     private var subtitleDataSouces: [SubtitleDataSouce] = KSOptions.subtitleDataSouces
     @Published
     public private(set) var subtitleInfos = [any SubtitleInfo]()
@@ -285,7 +298,10 @@ open class SubtitleModel: ObservableObject {
         didSet {
             subtitleInfos.removeAll()
             searchSubtitle(query: nil, languages: [])
-            subtitleDataSouces.forEach { datasouce in
+            if url != nil {
+                subtitleInfos.append(contentsOf: SubtitleModel.audioRecognizes)
+            }
+            for datasouce in subtitleDataSouces {
                 addSubtitle(dataSouce: datasouce)
             }
             // 要用async，不能在更新UI的时候，修改Publishe变量
@@ -322,13 +338,13 @@ open class SubtitleModel: ObservableObject {
             newParts = subtile.search(for: currentTime)
             if newParts.isEmpty {
                 newParts = parts.filter { part in
-                    part.end <= part.start || part == currentTime
+                    part == currentTime
                 }
             }
         }
         // swiftUI不会判断是否相等。所以需要这边判断下。
         if newParts != parts {
-            newParts.forEach { part in
+            for part in newParts {
                 if let text = part.text as? NSMutableAttributedString {
                     text.addAttributes([.font: SubtitleModel.textFont],
                                        range: NSRange(location: 0, length: text.length))
@@ -342,7 +358,7 @@ open class SubtitleModel: ObservableObject {
     }
 
     public func searchSubtitle(query: String?, languages: [String]) {
-        subtitleDataSouces.forEach { dataSouce in
+        for dataSouce in subtitleDataSouces {
             if let dataSouce = dataSouce as? SearchSubtitleDataSouce {
                 subtitleInfos.removeAll { info in
                     dataSouce.infos.contains {

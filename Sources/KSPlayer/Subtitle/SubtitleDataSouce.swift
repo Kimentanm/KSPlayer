@@ -5,6 +5,7 @@
 //  Created by kintan on 2018/8/7.
 //
 import Foundation
+
 public class EmptySubtitleInfo: SubtitleInfo {
     public var isEnabled: Bool = true
     public let subtitleID: String = ""
@@ -248,7 +249,7 @@ public class AssrtSubtitleDataSouce: SearchSubtitleDataSouce {
             return infos
         }
         if let fileList = sub["filelist"] as? [[String: String]] {
-            fileList.forEach { dic in
+            for dic in fileList {
                 if let urlString = dic["url"], let filename = dic["f"], let url = URL(string: urlString) {
                     let info = URLSubtitleInfo(subtitleID: urlString, name: filename, url: url)
                     infos.append(info)
@@ -399,14 +400,5 @@ extension URL {
             return file.readData(ofLength: 4096).md5()
         }.joined(separator: ";")
         return hash
-    }
-}
-
-import CryptoKit
-
-public extension Data {
-    func md5() -> String {
-        let digestData = Insecure.MD5.hash(data: self)
-        return String(digestData.map { String(format: "%02hhx", $0) }.joined().prefix(32))
     }
 }

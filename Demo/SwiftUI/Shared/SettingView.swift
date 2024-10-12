@@ -54,7 +54,6 @@ struct SettingAudioView: View {
                 Text("AUGraph").tag(NSStringFromClass(AudioGraphPlayer.self))
                 Text("AudioUnit").tag(NSStringFromClass(AudioUnitPlayer.self))
                 Text("AVAudioEngine").tag(NSStringFromClass(AudioEnginePlayer.self))
-                Text("AVSampleBufferAudioRenderer").tag(NSStringFromClass(AudioRendererPlayer.self))
             }
         }
     }
@@ -67,8 +66,6 @@ struct SettingVideoView: View {
     private var asynchronousDecompression
     @Default(\.isUseDisplayLayer)
     private var isUseDisplayLayer
-    @Default(\.displayCriteriaFormatDescriptionEnabled)
-    private var displayCriteriaFormatDescriptionEnabled
     @Default(\.yadifMode)
     private var yadifMode
     var body: some View {
@@ -76,7 +73,6 @@ struct SettingVideoView: View {
             Toggle("Hardware decoder", isOn: $hardwareDecode)
             Toggle("Asynchronous Decompression", isOn: $asynchronousDecompression)
             Toggle("Use DisplayLayer", isOn: $isUseDisplayLayer)
-            Toggle("Enable FormatDescription DisplayCriteria ", isOn: $displayCriteriaFormatDescriptionEnabled)
             Picker("yadif Mode", selection: $yadifMode) {
                 Text("yadif").tag(0)
                 Text("yadif_2x").tag(1)

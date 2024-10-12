@@ -22,7 +22,6 @@ public protocol VideoOutput: FrameOutput {
     var pixelBuffer: PixelBufferProtocol? { get }
     init(options: KSOptions)
     func invalidate()
-    func play()
     func readNextFrame()
 }
 
@@ -41,13 +40,14 @@ public final class MetalPlayView: UIView, VideoOutput {
     private var fps = Float(60) {
         didSet {
             if fps != oldValue {
-                let preferredFramesPerSecond = Int(ceil(fps))
-                displayLink.preferredFramesPerSecond = preferredFramesPerSecond << 1
-                #if os(iOS)
-                if #available(iOS 15.0, tvOS 15.0, *) {
-                    displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: Float(preferredFramesPerSecond), maximum: Float(preferredFramesPerSecond << 1))
+                if KSOptions.preferredFrame {
+                    let preferredFramesPerSecond = ceil(fps)
+                    if #available(iOS 15.0, tvOS 15.0, macOS 14.0, *) {
+                        displayLink.preferredFrameRateRange = CAFrameRateRange(minimum: preferredFramesPerSecond, maximum: 2 * preferredFramesPerSecond, __preferred: preferredFramesPerSecond)
+                    } else {
+                        displayLink.preferredFramesPerSecond = Int(preferredFramesPerSecond) << 1
+                    }
                 }
-                #endif
                 options.updateVideo(refreshRate: fps, isDovi: isDovi, formatDescription: formatDescription)
             }
         }
@@ -210,6 +210,11 @@ extension MetalPlayView {
                     size = KSOptions.sceneSize
                 }
                 checkFormatDescription(pixelBuffer: pixelBuffer)
+                #if !os(tvOS)
+                if #available(iOS 16, *) {
+                    metalView.metalLayer.edrMetadata = frame.edrMetadata
+                }
+                #endif
                 metalView.draw(pixelBuffer: pixelBuffer, display: options.display, size: size)
             }
             renderSource?.setVideo(time: cmtime, position: frame.position)
@@ -221,6 +226,7 @@ extension MetalPlayView {
             if formatDescription != nil {
                 displayView.removeFromSuperview()
                 displayView = AVSampleBufferDisplayView()
+                displayView.frame = frame
                 addSubview(displayView)
             }
             formatDescription = pixelBuffer.formatDescription
@@ -269,7 +275,7 @@ class MetalView: UIView {
         metalLayer.drawableSize = size
         metalLayer.pixelFormat = KSOptions.colorPixelFormat(bitDepth: pixelBuffer.bitDepth)
         let colorspace = pixelBuffer.colorspace
-        if metalLayer.colorspace != colorspace {
+        if colorspace != nil, metalLayer.colorspace != colorspace {
             metalLayer.colorspace = colorspace
             KSLog("[video] CAMetalLayer colorspace \(String(describing: colorspace))")
             #if !os(tvOS)
@@ -358,11 +364,20 @@ class AVSampleBufferDisplayView: UIView {
 
 #if os(macOS)
 import CoreVideo
+
 class CADisplayLink {
     private let displayLink: CVDisplayLink
     private var runloop: RunLoop?
     private var mode = RunLoop.Mode.default
     public var preferredFramesPerSecond = 60
+    @available(macOS 12.0, *)
+    public var preferredFrameRateRange: CAFrameRateRange {
+        get {
+            CAFrameRateRange()
+        }
+        set {}
+    }
+
     public var timestamp: TimeInterval {
         var timeStamp = CVTimeStamp()
         if CVDisplayLinkGetCurrentTime(displayLink, &timeStamp) == kCVReturnSuccess, (timeStamp.flags & CVTimeStampFlags.hostTimeValid.rawValue) != 0 {

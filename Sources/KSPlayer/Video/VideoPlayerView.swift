@@ -105,20 +105,19 @@ open class VideoPlayerView: PlayerView {
 
     override public var playerLayer: KSPlayerLayer? {
         didSet {
-            oldValue?.removeFromSuperview()
-            if let playerLayer {
+            oldValue?.player.view?.removeFromSuperview()
+            if let view = playerLayer?.player.view {
                 #if canImport(UIKit)
-                addSubview(playerLayer)
-                sendSubviewToBack(playerLayer)
+                insertSubview(view, belowSubview: contentOverlayView)
                 #else
-                addSubview(playerLayer, positioned: .below, relativeTo: contentOverlayView)
+                addSubview(view, positioned: .below, relativeTo: contentOverlayView)
                 #endif
-                playerLayer.translatesAutoresizingMaskIntoConstraints = false
+                view.translatesAutoresizingMaskIntoConstraints = false
                 NSLayoutConstraint.activate([
-                    playerLayer.topAnchor.constraint(equalTo: topAnchor),
-                    playerLayer.leadingAnchor.constraint(equalTo: leadingAnchor),
-                    playerLayer.bottomAnchor.constraint(equalTo: bottomAnchor),
-                    playerLayer.trailingAnchor.constraint(equalTo: trailingAnchor),
+                    view.topAnchor.constraint(equalTo: topAnchor),
+                    view.leadingAnchor.constraint(equalTo: leadingAnchor),
+                    view.bottomAnchor.constraint(equalTo: bottomAnchor),
+                    view.trailingAnchor.constraint(equalTo: trailingAnchor),
                 ])
             }
         }
@@ -251,9 +250,7 @@ open class VideoPlayerView: PlayerView {
         if srtControl.subtitle(currentTime: currentTime) {
             if let part = srtControl.parts.first {
                 subtitleBackView.image = part.image
-                if let text = part.text {
-                    subtitleLabel.attributedText = text
-                }
+                subtitleLabel.attributedText = part.text
                 subtitleBackView.isHidden = false
             } else {
                 subtitleBackView.image = nil
@@ -309,7 +306,7 @@ open class VideoPlayerView: PlayerView {
             if state == .playedToTheEnd {
                 replayButton.isSelected = true
             }
-        case .prepareToPlay:
+        case .initialized, .preparing:
             break
         }
     }
@@ -358,12 +355,12 @@ open class VideoPlayerView: PlayerView {
     }
 
     open func set(resource: KSPlayerResource, definitionIndex: Int = 0, isSetUrl: Bool = true) {
-        self.resource = resource
         currentDefinition = definitionIndex >= resource.definitions.count ? resource.definitions.count - 1 : definitionIndex
         if isSetUrl {
             let asset = resource.definitions[currentDefinition]
             super.set(url: asset.url, options: asset.options)
         }
+        self.resource = resource
     }
 
     override open func set(url: URL, options: KSOptions) {
@@ -547,7 +544,7 @@ public extension VideoPlayerView {
             disableAction.setValue(true, forKey: "checked")
         }
 
-        availableSubtitles.enumerated().forEach { _, srt in
+        for (_, srt) in availableSubtitles.enumerated() {
             let action = UIAlertAction(title: "\(srt)", style: .default) { [weak self] _ in
                 self?.srtControl.selectedSubtitleInfo = srt
             }
@@ -564,7 +561,7 @@ public extension VideoPlayerView {
 
     private func changePlaybackRate(button: UIButton) {
         let alertController = UIAlertController(title: NSLocalizedString("select speed", comment: ""), message: nil, preferredStyle: preferredStyle())
-        [0.75, 1.0, 1.25, 1.5, 2.0].forEach { rate in
+        for rate in [0.75, 1.0, 1.25, 1.5, 2.0] {
             let title = "\(rate) x"
             let action = UIAlertAction(title: title, style: .default) { [weak self] _ in
                 guard let self else { return }
@@ -573,7 +570,7 @@ public extension VideoPlayerView {
             }
             alertController.addAction(action)
 
-            if Float(rate) == self.playerLayer?.player.playbackRate {
+            if Float(rate) == playerLayer?.player.playbackRate {
                 alertController.preferredAction = action
                 action.setValue(true, forKey: "checked")
             }

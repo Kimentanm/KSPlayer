@@ -1,11 +1,12 @@
 @testable import KSPlayer
 import XCTest
+
 class KSMEPlayerTest: XCTestCase {
+    @MainActor
     func testPlaying() {
         if let path = Bundle(for: type(of: self)).path(forResource: "h264", ofType: "mp4") {
             let options = KSOptions()
             let player = KSMEPlayer(url: URL(fileURLWithPath: path), options: options)
-            options.isAutoPlay = false
             player.delegate = self
             XCTAssertEqual(player.isPlaying, false)
             player.play()
@@ -15,11 +16,11 @@ class KSMEPlayerTest: XCTestCase {
         }
     }
 
+    @MainActor
     func testAutoPlay() {
         if let path = Bundle(for: type(of: self)).path(forResource: "h264", ofType: "mp4") {
             let options = KSOptions()
             let player = KSMEPlayer(url: URL(fileURLWithPath: path), options: options)
-            options.isAutoPlay = true
             player.delegate = self
             XCTAssertEqual(player.isPlaying, false)
             player.play()

@@ -1,10 +1,12 @@
-// swift-tools-version:5.7
+// swift-tools-version:5.9
 import Foundation
 import PackageDescription
+
 let package = Package(
     name: "KSPlayer",
     defaultLocalization: "en",
-    platforms: [.macOS(.v10_15), .macCatalyst(.v13), .iOS(.v13), .tvOS(.v13)],
+    platforms: [.macOS(.v10_15), .macCatalyst(.v13), .iOS(.v13), .tvOS(.v13),
+                .visionOS(.v1)],
     products: [
         // Products define the executables and libraries produced by a package, and make them visible to other packages.
         .library(
@@ -22,8 +24,15 @@ let package = Package(
                 .product(name: "FFmpegKit", package: "FFmpegKit"),
 //                .product(name: "Libass", package: "FFmpegKit"),
 //                .product(name: "Libmpv", package: "FFmpegKit"),
+                "DisplayCriteria",
             ],
-            resources: [.process("Metal/Shaders.metal")]
+            resources: [.process("Metal/Shaders.metal")],
+            swiftSettings: [
+                .enableExperimentalFeature("StrictConcurrency"),
+            ]
+        ),
+        .target(
+            name: "DisplayCriteria"
         ),
         .testTarget(
             name: "KSPlayerTests",
@@ -32,6 +41,7 @@ let package = Package(
         ),
     ]
 )
+
 var ffmpegKitPath = FileManager.default.currentDirectoryPath + "/FFmpegKit"
 if !FileManager.default.fileExists(atPath: ffmpegKitPath) {
     ffmpegKitPath = FileManager.default.currentDirectoryPath + "../FFmpegKit"
@@ -55,6 +65,6 @@ if FileManager.default.fileExists(atPath: ffmpegKitPath + "/Package.swift") {
     ]
 } else {
     package.dependencies += [
-        .package(url: "https://github.com/kingslay/FFmpegKit.git", from: "6.1.0"),
+        .package(url: "https://github.com/kingslay/FFmpegKit.git", from: "6.1.3"),
     ]
 }

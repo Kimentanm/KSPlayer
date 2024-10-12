@@ -10,6 +10,7 @@ import Foundation
 import Metal
 import QuartzCore
 import simd
+
 class MetalRender {
     static let device = MTLCreateSystemDefaultDevice()!
     static let library: MTLLibrary = {
@@ -88,6 +89,7 @@ class MetalRender {
         commandBuffer.waitUntilCompleted()
     }
 
+    @MainActor
     func draw(pixelBuffer: PixelBufferProtocol, display: DisplayEnum = .plane, drawable: CAMetalDrawable) {
         let inputTextures = pixelBuffer.textures()
         renderPassDescriptor.colorAttachments[0].texture = drawable.texture

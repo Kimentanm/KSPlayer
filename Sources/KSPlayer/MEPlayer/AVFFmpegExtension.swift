@@ -3,6 +3,7 @@ import FFmpegKit
 import Libavcodec
 import Libavfilter
 import Libavformat
+
 func toDictionary(_ native: OpaquePointer?) -> [String: String] {
     var dict = [String: String]()
     if let native {
@@ -76,7 +77,7 @@ extension AVCodecContext {
 }
 
 extension AVCodecParameters {
-    mutating func createContext(options: KSOptions) throws -> UnsafeMutablePointer<AVCodecContext> {
+    mutating func createContext(options: KSOptions?) throws -> UnsafeMutablePointer<AVCodecContext> {
         var codecContextOption = avcodec_alloc_context3(nil)
         guard let codecContext = codecContextOption else {
             throw NSError(errorCode: .codecContextCreate)
@@ -86,7 +87,7 @@ extension AVCodecParameters {
             avcodec_free_context(&codecContextOption)
             throw NSError(errorCode: .codecContextSetParam, avErrorCode: result)
         }
-        if codec_type == AVMEDIA_TYPE_VIDEO, options.hardwareDecode {
+        if codec_type == AVMEDIA_TYPE_VIDEO, options?.hardwareDecode ?? false {
             codecContext.getFormat()
         }
         guard let codec = avcodec_find_decoder(codecContext.pointee.codec_id) else {
@@ -95,17 +96,19 @@ extension AVCodecParameters {
         }
         codecContext.pointee.codec_id = codec.pointee.id
         codecContext.pointee.flags2 |= AV_CODEC_FLAG2_FAST
-        if options.codecLowDelay {
+        if options?.codecLowDelay == true {
             codecContext.pointee.flags |= AV_CODEC_FLAG_LOW_DELAY
         }
-        var lowres = options.lowres
-        if lowres > codec.pointee.max_lowres {
-            lowres = codec.pointee.max_lowres
-        }
-        codecContext.pointee.lowres = Int32(lowres)
-        var avOptions = options.decoderOptions.avOptions
-        if lowres > 0 {
-            av_dict_set_int(&avOptions, "lowres", Int64(lowres), 0)
+        var avOptions = options?.decoderOptions.avOptions
+        if let options {
+            var lowres = options.lowres
+            if lowres > codec.pointee.max_lowres {
+                lowres = codec.pointee.max_lowres
+            }
+            codecContext.pointee.lowres = Int32(lowres)
+            if lowres > 0 {
+                av_dict_set_int(&avOptions, "lowres", Int64(lowres), 0)
+            }
         }
         result = avcodec_open2(codecContext, codec, &avOptions)
         av_dict_free(&avOptions)
@@ -285,7 +288,8 @@ extension AVPixelFormat {
         case AV_PIX_FMT_RGB555LE: return kCVPixelFormatType_16LE555
         case AV_PIX_FMT_RGB565BE: return kCVPixelFormatType_16BE565
         case AV_PIX_FMT_RGB565LE: return kCVPixelFormatType_16LE565
-        case AV_PIX_FMT_BGR24: return kCVPixelFormatType_24BGR
+//             PixelBufferPool 无法支持24BGR
+//        case AV_PIX_FMT_BGR24: return kCVPixelFormatType_24BGR
         case AV_PIX_FMT_RGB24: return kCVPixelFormatType_24RGB
         case AV_PIX_FMT_0RGB: return kCVPixelFormatType_32ARGB
         case AV_PIX_FMT_ARGB: return kCVPixelFormatType_32ARGB
@@ -440,7 +444,7 @@ public struct AVError: Error, Equatable {
     }
 }
 
-extension Dictionary where Key == String {
+public extension Dictionary where Key == String {
     var avOptions: OpaquePointer? {
         var avOptions: OpaquePointer?
         forEach { key, value in
@@ -471,7 +475,7 @@ extension String {
     }
 }
 
-extension NSError {
+public extension NSError {
     convenience init(errorCode: KSPlayerErrorCode, avErrorCode: Int32) {
         let underlyingError = AVError(code: avErrorCode)
         self.init(errorCode: errorCode, userInfo: [NSUnderlyingErrorKey: underlyingError])

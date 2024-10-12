@@ -14,7 +14,6 @@ public protocol AudioOutput: FrameOutput {
     var isMuted: Bool { get set }
     init()
     func prepare(audioFormat: AVAudioFormat)
-    func play(time: TimeInterval)
 }
 
 public protocol AudioDynamicsProcessor {
@@ -113,6 +112,7 @@ public class AudioEnginePlayer: AudioOutput {
     private let timePitch = AVAudioUnitTimePitch()
     private var sampleSize = UInt32(MemoryLayout<Float>.size)
     private var currentRenderReadOffset = UInt32(0)
+    private var outputLatency = TimeInterval(0)
     public weak var renderSource: OutputRenderSourceDelegate?
     private var currentRender: AudioFrame? {
         didSet {
@@ -154,6 +154,9 @@ public class AudioEnginePlayer: AudioOutput {
         if let audioUnit = engine.outputNode.audioUnit {
             addRenderNotify(audioUnit: audioUnit)
         }
+        #if !os(macOS)
+        outputLatency = AVAudioSession.sharedInstance().outputLatency
+        #endif
     }
 
     public func prepare(audioFormat: AVAudioFormat) {
@@ -197,7 +200,7 @@ public class AudioEnginePlayer: AudioOutput {
             try? engine.start()
             // 从多声道切换到2声道马上调用start会不生效。需要异步主线程才可以
             DispatchQueue.main.async { [weak self] in
-                self?.play(time: 0)
+                self?.play()
             }
         }
     }
@@ -206,7 +209,7 @@ public class AudioEnginePlayer: AudioOutput {
         [timePitch, engine.mainMixerNode]
     }
 
-    public func play(time _: TimeInterval) {
+    public func play() {
         if !engine.isRunning {
             do {
                 try engine.start()
@@ -224,6 +227,10 @@ public class AudioEnginePlayer: AudioOutput {
 
     public func flush() {
         currentRender = nil
+        #if !os(macOS)
+        // 这个要在主线程执行，如果在音频的线程，那就会有中断杂音
+        outputLatency = AVAudioSession.sharedInstance().outputLatency
+        #endif
     }
 
     private func addRenderNotify(audioUnit: AudioUnit) {
@@ -274,7 +281,7 @@ public class AudioEnginePlayer: AudioOutput {
                 continue
             }
             if sourceNodeAudioFormat != currentRender.audioFormat {
-                runInMainqueue { [weak self] in
+                runOnMainThread { [weak self] in
                     guard let self else {
                         return
                     }
@@ -307,7 +314,13 @@ public class AudioEnginePlayer: AudioOutput {
         if let currentRender {
             let currentPreparePosition = currentRender.timestamp + currentRender.duration * Int64(currentRenderReadOffset) / Int64(currentRender.numberOfSamples)
             if currentPreparePosition > 0 {
-                renderSource?.setAudio(time: currentRender.timebase.cmtime(for: currentPreparePosition), position: currentRender.position)
+                var time = currentRender.timebase.cmtime(for: currentPreparePosition)
+                if outputLatency != 0 {
+                    /// AVSampleBufferAudioRenderer不需要处理outputLatency。其他音频输出的都要处理。
+                    /// 没有蓝牙的话，outputLatency为0.015，有蓝牙耳机的话为0.176
+                    time = time - CMTime(seconds: outputLatency, preferredTimescale: time.timescale)
+                }
+                renderSource?.setAudio(time: time, position: currentRender.position)
             }
         }
     }

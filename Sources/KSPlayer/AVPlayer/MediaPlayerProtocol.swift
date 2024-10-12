@@ -17,6 +17,7 @@ public protocol MediaPlayback: AnyObject {
     var duration: TimeInterval { get }
     var fileSize: Double { get }
     var naturalSize: CGSize { get }
+    var chapters: [Chapter] { get }
     var currentPlaybackTime: TimeInterval { get }
     func prepareToPlay()
     func shutdown()
@@ -55,6 +56,12 @@ public class DynamicInfo: ObservableObject {
         audioBitrateBlock = audioBitrate
         videoBitrateBlock = videoBitrate
     }
+}
+
+public struct Chapter {
+    public let start: TimeInterval
+    public let end: TimeInterval
+    public let title: String
 }
 
 public protocol MediaPlayerProtocol: MediaPlayback {
@@ -97,6 +104,7 @@ public extension MediaPlayerProtocol {
     }
 }
 
+@MainActor
 public protocol MediaPlayerDelegate: AnyObject {
     func readyToPlay(player: some MediaPlayerProtocol)
     func changeLoadState(player: some MediaPlayerProtocol)
@@ -109,10 +117,11 @@ public protocol MediaPlayerDelegate: AnyObject {
 public protocol MediaPlayerTrack: AnyObject, CustomStringConvertible {
     var trackID: Int32 { get }
     var name: String { get }
-    var language: String? { get }
+    var languageCode: String? { get }
     var mediaType: AVFoundation.AVMediaType { get }
-    var nominalFrameRate: Float { get }
+    var nominalFrameRate: Float { get set }
     var bitRate: Int64 { get }
+    var bitDepth: Int32 { get }
     var isEnabled: Bool { get set }
     var isImageSubtitle: Bool { get }
     var rotation: Int16 { get }
@@ -181,6 +190,12 @@ extension FFmpegFieldOrder: CustomStringConvertible {
 
 // swiftlint:enable identifier_name
 public extension MediaPlayerTrack {
+    var language: String? {
+        languageCode.flatMap {
+            Locale.current.localizedString(forLanguageCode: $0)
+        }
+    }
+
     var codecType: FourCharCode {
         mediaSubType.rawValue
     }
@@ -224,17 +239,21 @@ public extension MediaPlayerTrack {
 
 public extension CMFormatDescription {
     var dynamicRange: DynamicRange {
-        let cotentRange: DynamicRange
+        let contentRange: DynamicRange
         if codecType.string == "dvhe" || codecType == kCMVideoCodecType_DolbyVisionHEVC {
-            cotentRange = .dolbyVision
-        } else if codecType.bitDepth == 10 || transferFunction == kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String { /// HDR
-            cotentRange = .hdr10
+            contentRange = .dolbyVision
+        } else if bitDepth == 10 || transferFunction == kCVImageBufferTransferFunction_SMPTE_ST_2084_PQ as String { /// HDR
+            contentRange = .hdr10
         } else if transferFunction == kCVImageBufferTransferFunction_ITU_R_2100_HLG as String { /// HLG
-            cotentRange = .hlg
+            contentRange = .hlg
         } else {
-            cotentRange = .sdr
+            contentRange = .sdr
         }
-        return cotentRange
+        return contentRange
+    }
+
+    var bitDepth: Int32 {
+        codecType.bitDepth
     }
 
     var codecType: FourCharCode {
@@ -301,6 +320,9 @@ public extension CMFormatDescription {
 }
 
 func setHttpProxy() {
+    guard KSOptions.useSystemHTTPProxy else {
+        return
+    }
     guard let proxySettings = CFNetworkCopySystemProxySettings()?.takeUnretainedValue() as? NSDictionary else {
         unsetenv("http_proxy")
         return
